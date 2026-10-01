@@ -320,5 +320,10 @@ jobs:
           generate_release_notes: true
           make_latest: "true"
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # RECURSIVE on purpose: download-artifact preserves each artifact's internal
+          # bundle/… subdirectory, so files land at artifacts/<arch-dir>/… — the
+          # one-level 'artifacts/*' matched only directories and silently uploaded
+          # zero assets on the first v0.0.1 release run. Assets upload by basename;
+          # filenames already carry arch/extension so nothing collides.
           files: |
-            artifacts/*
+            artifacts/**
