@@ -14,6 +14,11 @@ env:
   # All artifacts are unsigned (Windows code signing / Apple notarization / Android keystore
   # are all unconfigured; once configured, just pass the secret in the matching job — see each job's comment spot).
   CARGO_TERM_COLOR: always
+  # The full 7-locale Paraglide catalog (~2700 message modules) pushes the vite build past
+  # Node's default heap on the smaller runners — the first full-catalog macOS run died with
+  # "Reached heap limit Allocation failed - JavaScript heap out of memory" inside
+  # beforeBuildCommand. Raise the V8 old-space cap for every pnpm/node invocation.
+  NODE_OPTIONS: --max-old-space-size=8192
 
 jobs:
   # ==========================================================================
