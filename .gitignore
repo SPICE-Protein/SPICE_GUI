@@ -15,3 +15,6 @@ src-tauri/gen/android/keystore.properties
 *.keystore
 *.p12
 *.pfx
+
+# inlang editor cache (regenerated locally)
+project.inlang/cache/
