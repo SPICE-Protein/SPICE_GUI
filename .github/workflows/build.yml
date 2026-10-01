@@ -20,8 +20,12 @@ jobs:
   # Four desktop targets: all use native-architecture runners, zero cross-compilation.
   #   windows-2022     → x86_64-pc-windows-msvc   (NSIS + MSI)
   #   macos-14         → aarch64-apple-darwin     (Apple Silicon, DMG + .app)
-  #   ubuntu-22.04     → x86_64-unknown-linux-gnu  (deb + rpm)
+  #   ubuntu-24.04     → x86_64-unknown-linux-gnu  (deb + rpm)
   #   ubuntu-24.04-arm → aarch64-unknown-linux-gnu (deb + rpm)
+  # Both Linux builders must be 24.04+: the static ONNX Runtime that ort 2.0.0-rc.x
+  # downloads references glibc ≥ 2.38 (__isoc23_*) and libstdc++ ≥ 14 (_M_replace_cold)
+  # symbols; ubuntu-22.04 fails at link time. Consequence: deb/rpm require glibc 2.39
+  # at install time (drop a `# min-glibc` note in release pages if it matters).
   # ubuntu-24.04-arm: free for public repos (GA 2025-08); private repos are billed as
   # larger-runner. If you don't want billing, replace this include with the
   # ubuntu-24.04 + qemu-user-static container setup (compilation ~5–10x slower).
@@ -38,7 +42,7 @@ jobs:
             os: macos-14
             bundles: dmg
           - name: linux-x64
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             bundles: deb,rpm
           - name: linux-arm64
             os: ubuntu-24.04-arm
@@ -122,6 +126,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ci-keys"
           echo "$APPLE_API_KEY_P8_B64" | base64 --decode > "$RUNNER_TEMP/ci-keys/AuthKey.p8"
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/ci-keys/AuthKey.p8" >> "$GITHUB_ENV"
+          # Export the Key ID + issuer ONLY when the key exists. Passing them
+          # unconditionally from the build step would hand tauri an empty-string
+          # env var, which it reads as "notarize me" and then fails.
+          echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
         env:
           APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
 
@@ -133,15 +142,17 @@ jobs:
           # Prerequisites to take effect (tauri.conf.json):
           #  · pfx route    → set certificateThumbprint/digestAlgorithm/timestampUrl under bundle.windows
           #  · Azure route  → bundle.windows.signCommand = "artifact-signing-cli -e https://<region>.codesigning.azure.net -a <account> -c <profile> -d SPICE %1"
-          #  · macOS        → bundle.macOS.signingIdentity or the APPLE_SIGNING_IDENTITY below;
+          #  · macOS        → bundle.macOS.signingIdentity or APPLE_SIGNING_IDENTITY, which the
+          #                   conditional import step above exports into $GITHUB_ENV. Do NOT pass
+          #                   APPLE_CERTIFICATE / APPLE_API_KEY here unconditionally: an unset
+          #                   secret arrives as an EMPTY STRING, and tauri-cli treats "set at all"
+          #                   as "sign now" — it then runs `security import` on nothing and the
+          #                   dmg bundling dies with SecKeychainItemImport errors. Unsigned macOS
+          #                   builds simply omit these vars (that is the gate working).
           #                   notarization = APPLE_API_KEY(Key ID)+APPLE_API_ISSUER+APPLE_API_KEY_PATH
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -241,8 +252,19 @@ jobs:
           base64 -d <<< "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" > "$RUNNER_TEMP/keystore.jks"
           echo "storeFile=$RUNNER_TEMP/keystore.jks" >> keystore.properties
 
+      # Retry wrapper: tauri rewrites the gradle wrapper to the GitHub-releases
+      # distribution URL (github.com/gradle/gradle-distributions) at build time,
+      # which intermittently answers HTTP 500. The first attempt compiles all of
+      # Rust; retries only re-enter the gradle phase, so the loop is cheap.
       - name: Tauri android build (arm64 APK)
-        run: pnpm tauri android build --apk --target aarch64
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            if pnpm tauri android build --apk --target aarch64; then ok=1; break; fi
+            echo "::warning::android build attempt $i failed (often a transient Gradle-dist 500); retrying in 60s"
+            sleep 60
+          done
+          test "$ok" = "1"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
