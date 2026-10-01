@@ -1,0 +1,63 @@
+[package]
+name = "spice_gui"
+version = "0.1.0"
+description = "SPICE — Sequence-Protein Interaction under Conditional Environments (Tauri GUI)"
+authors = ["RedElectricity"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "spice_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+regex = "1"
+# SPD checkpoint identity hashes (spd::model_sha256)
+sha2 = "0.10"
+
+# ---- SPICE engine (Rust MD core) ----
+# GitHub main is the source of truth (the local ../md_cal working copy pushes to
+# this same repo). The Cargo.lock pins the exact rev; refresh with
+# `cargo update -p spice_engine`.
+spice_engine = { git = "https://github.com/SPICE-Protein/spice_engine.git" }
+
+# Since spice_engine 1.3, ComputationDevice/FfParamSet come from the engine's
+# own tree (spice_engine::engine::md_core) — no direct `dynamics` dep needed.
+# na_seq::Element is still required for StructureInput construction.
+na_seq = "0.3.15"
+
+# ---- ONNX runtime (inference of the pre-train model) ----
+ort = "2.0.0-rc.13"
+ndarray = "0.16"
+
+# ---- model download (settings panel) ----
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+libmsa = "0.2.0"
+mafft = "0.1.2"
+zip = "8.6.0"
+bio = "4.0.1"
+
+# Cargo patches do NOT propagate from a dependency's manifest — they only apply
+# from the root crate. spice_engine's own Cargo.toml declares these patches; we
+# MUST replicate them here so the Tauri app's build resolves identically:
+#  - ewald: arm64 SIMD fix + SPME k-virial sign (>= 0.1.16 required by 1.3.x)
+#  - bio_files: the `network` feature (optional ureq/rustls chain) that
+#    spice_engine's default features forward — crates.io 0.5.x lacks it.
+[patch.crates-io]
+ewald = { git = "https://github.com/SPICE-Protein/ewald.git" }
+bio_files = { git = "https://github.com/SPICE-Protein/bio_files.git" }
+

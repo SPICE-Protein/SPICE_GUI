@@ -1,0 +1,280 @@
+/* ============================================================
+   SPICE GUI — Pixel / retro-CRT app shell
+   Sits on top of svelte-multistyle-ui's `pixel` style.
+   ============================================================ */
+
+:root {
+  --pix-bg: #0b0e14;
+  --pix-bg-2: #121624;
+  --pix-bg-3: #1a2030;
+  --pix-panel: #10141f;
+  --pix-border: #2a3450;
+  --pix-border-hi: #4a5a82;
+  --pix-fg: #d8e1f2;
+  --pix-fg-dim: #8b96b5;
+  --pix-accent: #ff9f1c;      /* ginger orange */
+  --pix-accent-2: #ffd23f;
+  --pix-green: #53d769;
+  --pix-red: #ff5d5d;
+  --pix-cyan: #4cd6ff;
+  --pix-purple: #b48cff;
+  --pix-font: "SFMono-Regular", "JetBrains Mono", "Fira Code", "Menlo",
+    "Consolas", "Courier New", monospace;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body.spice-app {
+  margin: 0;
+  background: var(--pix-bg);
+  color: var(--pix-fg);
+  font-family: var(--pix-font);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* Global CRT scanlines */
+body.spice-app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.16) 0px,
+    rgba(0, 0, 0, 0.16) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+}
+
+/* Shared pixel-style utilities */
+.pix-panel {
+  background: var(--pix-panel);
+  border: 2px solid var(--pix-border);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 0 0 2px rgba(0, 0, 0, 0.6);
+  image-rendering: pixelated;
+}
+
+.pix-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--pix-accent-2);
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8);
+}
+
+.pix-dim {
+  color: var(--pix-fg-dim);
+}
+
+.pix-led {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+.pix-led.ok {
+  background: var(--pix-green);
+  color: var(--pix-green);
+}
+.pix-led.bad {
+  background: var(--pix-red);
+  color: var(--pix-red);
+}
+.pix-led.busy {
+  background: var(--pix-accent);
+  color: var(--pix-accent);
+  animation: blink 0.8s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.pix-btn-reset {
+  font-family: var(--pix-font);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  background: var(--pix-bg-3);
+  color: var(--pix-fg);
+  border: 2px solid var(--pix-border-hi);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.pix-btn-reset:hover {
+  background: var(--pix-accent);
+  color: #1a0f00;
+  border-color: var(--pix-accent-2);
+}
+.pix-btn-reset:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.55);
+}
+
+.pix-btn {
+  font-family: var(--pix-font);
+  font-size: 11px;
+  padding: 4px 10px;
+  background: var(--pix-bg-3);
+  color: var(--pix-fg);
+  border: 2px solid var(--pix-border-hi);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pix-btn:hover {
+  background: var(--pix-accent);
+  color: #1a0f00;
+  border-color: var(--pix-accent-2);
+}
+.pix-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.55);
+}
+.pix-btn.ok {
+  border-color: var(--pix-green);
+  color: var(--pix-green);
+}
+.pix-btn.ok:hover {
+  background: var(--pix-green);
+  color: #121624;
+  border-color: #7ef58c;
+}
+.pix-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.55) !important;
+}
+
+/* Numeric readout */
+.pix-num {
+  font-size: 14px;
+  color: var(--pix-cyan);
+  font-weight: 700;
+}
+
+/* Native number input (pixel style) */
+.pix-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.pix-input {
+  font-family: var(--pix-font);
+  font-size: 12px;
+  color: var(--pix-fg);
+  background: var(--pix-bg);
+  border: 2px solid var(--pix-border-hi);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  padding: 3px 5px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.pix-input:focus {
+  outline: none;
+  border-color: var(--pix-accent);
+  box-shadow: 0 0 0 1px var(--pix-accent);
+}
+
+.pix-num.warn {
+  color: var(--pix-accent);
+}
+.pix-num.bad {
+  color: var(--pix-red);
+}
+.pix-num.good {
+  color: var(--pix-green);
+}
+
+/* Make svelte-multistyle-ui pixel components crisper in dark mode */
+html.dark .theme-midnight {
+  --t-primary: var(--pix-accent);
+  --t-surface-bg: var(--pix-bg-2);
+  --t-card-bg: var(--pix-panel);
+  --t-card-border-color: var(--pix-border);
+  --t-text: var(--pix-fg);
+  --t-text-muted: var(--pix-fg-dim);
+  --t-btn-radius: 0;
+  --t-card-radius: 0;
+  --t-border-width: 2px;
+}
+
+/* Pixelated scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--pix-bg-2);
+  border: 1px solid var(--pix-border);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--pix-border-hi);
+  border: 1px solid #000;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--pix-accent);
+}
+
+/* Tooltip styling for SPICE GUI - Pixel Style */
+.pix-tooltip {
+  position: relative;
+  cursor: help;
+  text-decoration: underline dashed 1px var(--pix-border-hi);
+  text-underline-offset: 3px;
+}
+.pix-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #121624;
+  color: var(--pix-fg);
+  border: 2px solid var(--pix-accent);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.75);
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  width: max-content;
+  max-width: 280px;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease-in-out, transform 0.1s ease-in-out;
+  font-family: var(--pix-font);
+  text-align: left;
+  text-transform: none;
+  font-weight: normal;
+}
+.pix-tooltip:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+

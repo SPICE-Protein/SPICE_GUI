@@ -1,0 +1,199 @@
+{
+  "format": "SPICE_GENE",
+  "version": "1.0",
+  "meta": {
+    "plasmidName": "pUC19_cloning_vector",
+    "hostPreference": "ecoli",
+    "createdAt": "2026-08-15T15:22:38.558Z"
+  },
+  "sequence": "gacgtcttatgacaacttgacggctacatcattcactttttcttcacaaccggcacggaactcgctcgggctggccccggtgcattttttaaatacccgcgagaaatagagttgatcgtcaaaaccaacattgcgaccgacggtggcgataggcatccgggtggtgctcaaaagcagcttcgcctggctgatacgttggtcctcgcgccagcttaagacgctaatccctaactgctggcggaaaagatgtgacagacgcgacggcgacaagcaaacatgctgtgcgacgctggcgatatcaaaattgctgtctgccaggtgatcgctgatgtactgacaagcctcgcgtacccgattatccatcggtggatggagcgactcgttaatcgcttccatgcgccgcagtaacaattgctcaagcagatttatcgccagcagctccgaatagcgcccttccccttgcccggcgttaatgatttgcccaaacaggtcgctgaaatgcggctggtgcgcttcatccgggcgaaagaaccccgtattggcaaatattgacggccagttaagccattcatgccagtaggcgcgcggacgaaagtaaacccactggtgataccattcgcgagcctccggatgacgaccgtagtgatgaatctctcctggcgggaacagcaaaatatcacccggtcggcaaacaaattctcgtccctgatttttcaccaccccctgaccgcgaatggtgagattgagaatataacctttcattcccagcggtcggtcgataaaaaaatcgagataaccgttggcctcaatcggcgttaaacccgccaccagatgggcattaaacgagtatcccggcagcaggggatcattttgcgcttcagccatacttttcatactcccgccattcagagaagaaaccaattgtccatattgcatcagacattgccgtcactgcgtcttttactggctcttctcgctaaccaaaccggtaaccccgcttattaaaagcattctgtaacaaagcgggaccaaagccatgacaaaaacgcgtaacaaaagtgtctataatcacggcagaaaagtccacattgattatttgcacggcgtcacactttgctatgccatagcatttttatccataagattagcggattctacctgacgctttttatcgcaactctctactgtttctccatacccgtttttttgggaatttttaagaaggagatatacatatgagtaaaggagaagaacttttcactggagttgtcccaattcttgttgaattagatggtgatgttaatgggcacaaattttctgtcagtggagagggtgaaggtgatgcaacatacggaaaacttacccttaaatttatttgcactactggaaaactacctgttccatggccaacacttgtcactactttctcttatggtgttcaatgcttttcccgttatccggatcatatgaaacggcatgactttttcaagagtgccatgcccgaaggttatgtacaggaacgcactatatctttcaaagatgacgggaactacaagacgcgtgctgaagtcaagtttgaaggtgatacccttgttaatcgtatcgagttaaaaggtattgattttaaagaagatggaaacattctcggacacaaactcgaatacaactataactcacacaatgtatacatcacggcagacaaacaaaagaatggaatcaaagctaacttcaaaattcgccacaacattgaagatggatctgttcaactagcagaccattatcaacaaaatactccaattggcgatggccctgtccttttaccagacaaccattacctgtcgacacaatctgccctttcgaaagatcccaacgaaaagcgtgaccacatggtccttcttgagtttgtaactgctgctgggattacacatggcatggatgagctcggcggcggcggcagcaaggtctacggcaaggaacagtttttgcggatgcgccagagcatgttccccgatcgctaaatcgagtaaggatctccaggcatcaaataaaacgaaaggctcagtcgaaagactgggcctttcgttttatctgttgtttgtcggtgaacgctctctactagagtcacactggctcaccttcgggtgggcctttctgcgtttatacctagggtacgggttttgctgcccgcaaacgggctgttctggtgttgctagtttgttatcagaatcgcagatccggcttcagccggtttgccggctgaaagcgctatttcttccagaattgccatgattttttccccacgggaggcgtcactggctcccgtgttgtcggcagctttgattcgataagcagcatcgcctgtttcaggctgtctatgtgtgactgttgagctgtaacaagttgtctcaggtgttcaatttcatgttctagttgctttgttttactggtttcacctgttctattaggtgttacatgctgttcatctgttacattgtcgatctgttcatggtgaacagctttgaatgcaccaaaaactcgtaaaagctctgatgtatctatcttttttacaccgttttcatctgtgcatatggacagttttccctttgatatgtaacggtgaacagttgttctacttttgtttgttagtcttgatgcttcactgatagatacaagagccataagaacctcagatccttccgtatttagccagtatgttctctagtgtggttcgttgtttttgcgtgagccatgagaacgaaccattgagatcatacttactttgcatgtcactcaaaaattttgcctcaaaactggtgagctgaatttttgcagttaaagcatcgtgtagtgtttttcttagtccgttatgtaggtaggaatctgatgtaatggttgttggtattttgtcaccattcatttttatctggttgttctcaagttcggttacgagatccatttgtctatctagttcaacttggaaaatcaacgtatcagtcgggcggcctcgcttatcaaccaccaatttcatattgctgtaagtgtttaaatctttacttattggtttcaaaacccattggttaagccttttaaactcatggtagttattttcaagcattaacatgaacttaaattcatcaaggctaatctctatatttgccttgtgagttttcttttgtgttagttcttttaataaccactcataaatcctcatagagtatttgttttcaaaagacttaacatgttccagattatattttatgaatttttttaactggaaaagataaggcaatatctcttcactaaaaactaattctaatttttcgcttgagaacttggcatagtttgtccactggaaaatctcaaagcctttaaccaaaggattcctgatttccacagttctcgtcatcagctctctggttgctttagctaatacaccataagcattttccctactgatgttcatcatctgagcgtattggttataagtgaacgataccgtccgttctttccttgtagggttttcaatcgtggggttgagtagtgccacacagcataaaattagcttggtttcatgctccgttaagtcatagcgactaatcgctagttcatttgctttgaaaacaactaattcagacatacatctcaattggtctaggtgattttaatcactataccaattgagatgggctagtcaatgataattactagtccttttcccgggtgatctgggtatctgtaaattctgctagacctttgctggaaaacttgtaaattctgctagaccctctgtaaattccgctagacctttgtgtgttttttttgtttatattcaagtggttataatttatagaataaagaaagaataaaaaaagataaaaagaatagatcccagccctgtgtataactcactactttagtcagttccgcagtattacaaaaggatgtcgcaaacgctgtttgctcctctacaaaacagaccttaaaaccctaaaggcttaagtagcaccctcgcaagctcgggcaaatcgctgaatattccttttgtctccgaccatcaggcacctgagtcgctgtctttttcgtgacattcagttcgctgcgctcacggctctggcagtgaatgggggtaaatggcactacaggcgccttttatggattcatgcaaggaaactacccataatacaagaaaagcccgtcacgggcttctcagggcgttttatggcgggtctgctatgtggtgctatctgactttttgctgttcagcagttcctgccctctgattttccagtctgaccacttcggattatcccgtgacaggtcattcagactggctaatgcacccagtaaggcagcggtatcatcaacaggcttacccgtcttactgtccctagtgcttggattctcaccaataaaaaacgcccggcggcaaccgagcgttctgaacaaatccagatggagttctgaggtcattactggatctatcaacaggagtccaagcgagctcgatatcaaattacgccccgccctgccactcatcgcagtactgttgtaattcattaagcattctgccgacatggaagccatcacaaacggcatgatgaacctgaatcgccagcggcatcagcaccttgtcgccttgcgtataatatttgcccatggtgaaaacgggggcgaagaagttgtccatattggccacgtttaaatcaaaactggtgaaactcacccagggattggctgagacgaaaaacatattctcaataaaccctttagggaaataggccaggttttcaccgtaacacgccacatcttgcgaatatatgtgtagaaactgccggaaatcgtcgtggtattcactccagagcgatgaaaacgtttcagtttgctcatggaaaacggtgtaacaagggtgaacactatcccatatcaccagctcaccgtctttcattgccatacgaaattccggatgagcattcatcaggcgggcaagaatgtgaataaaggccggataaaacttgtgcttatttttctttacggtctttaaaaaggccgtaatatccagctgaacggtctggttataggtacattgagcaactgactgaaatgcctcaaaatgttctttacgatgccattgggatatatcaacggtggtatatccagtgatttttttctccattttagcttccttagctcctgaaaatctcgataactcaaaaaatacgcccggtagtgatcttatttcattatggtgaaagttggaacctcttacgtgccgatcaacgtctcattttcgccagatatc",
+  "features": [
+    {
+      "name": "araC",
+      "start": 7,
+      "end": 885,
+      "type": "CDS",
+      "color": "#ef6500",
+      "forward": false
+    },
+    {
+      "name": "Operator I2 and I1",
+      "start": 1124,
+      "end": 1162,
+      "type": "protein_bind",
+      "color": "#2e2e2e",
+      "forward": true
+    },
+    {
+      "name": "signal_peptide",
+      "start": 1953,
+      "end": 2015,
+      "type": "CDS",
+      "color": "#ef6500",
+      "forward": true
+    },
+    {
+      "name": "dbl term",
+      "start": 2034,
+      "end": 2162,
+      "type": "terminator",
+      "color": "#f51600",
+      "forward": true
+    },
+    {
+      "name": "operator O1",
+      "start": 1072,
+      "end": 1093,
+      "type": "protein_bind",
+      "color": "#2e2e2e",
+      "forward": true
+    },
+    {
+      "name": "CAP site",
+      "start": 1115,
+      "end": 1128,
+      "type": "misc_binding",
+      "color": "#006fef",
+      "forward": true
+    },
+    {
+      "name": "pBAD promoter",
+      "start": 1161,
+      "end": 1188,
+      "type": "promoter",
+      "color": "#31b440",
+      "forward": true
+    },
+    {
+      "name": "GFPuv",
+      "start": 1236,
+      "end": 2018,
+      "type": "CDS",
+      "color": "#ef6500",
+      "forward": true
+    },
+    {
+      "name": "XhoI_silent_mutation",
+      "start": 1661,
+      "end": 1661,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": true
+    },
+    {
+      "name": "RBS",
+      "start": 1216,
+      "end": 1235,
+      "type": "RBS",
+      "color": "#bdffcb",
+      "forward": true
+    },
+    {
+      "name": "operator O2",
+      "start": 914,
+      "end": 931,
+      "type": "protein_bind",
+      "color": "#2e2e2e",
+      "forward": true
+    },
+    {
+      "name": "BamHI_silent_mutation",
+      "start": 1760,
+      "end": 1760,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": true
+    },
+    {
+      "name": "CmR",
+      "start": 4514,
+      "end": 5173,
+      "type": "misc_marker",
+      "color": "#8dceb1",
+      "forward": false
+    },
+    {
+      "name": "pSC101**",
+      "start": 2164,
+      "end": 4392,
+      "type": "rep_origin",
+      "color": "#878787",
+      "forward": false
+    },
+    {
+      "name": "T0",
+      "start": 4393,
+      "end": 4498,
+      "type": "terminator",
+      "color": "#f51600",
+      "forward": true
+    },
+    {
+      "name": "araE promoter",
+      "start": 1036,
+      "end": 1064,
+      "type": "promoter",
+      "color": "#31b440",
+      "forward": false
+    },
+    {
+      "name": "araD",
+      "start": 7,
+      "end": 885,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": false
+    },
+    {
+      "name": "dbl term",
+      "start": 2034,
+      "end": 2162,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": true
+    },
+    {
+      "name": "CmR I'm a real long label",
+      "start": 4514,
+      "end": 5173,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": false
+    },
+    {
+      "name": "GFPuv",
+      "start": 1242,
+      "end": 1952,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": true
+    },
+    {
+      "name": "pSC101**",
+      "start": 2164,
+      "end": 4392,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": false
+    },
+    {
+      "name": "pS8c-vector_backbone",
+      "start": 2016,
+      "end": 1238,
+      "type": "misc_feature",
+      "color": "#006fef",
+      "forward": true
+    }
+  ],
+  "selectedEnzymes": [
+    "EcoRI",
+    "BamHI",
+    "HindIII",
+    "XhoI",
+    "NdeI",
+    "SacI",
+    "SalI",
+    "KpnI"
+  ],
+  "selectionNotes": []
+}

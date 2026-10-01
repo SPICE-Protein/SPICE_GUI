@@ -1,0 +1,10 @@
+import { loadProjectFromDirectory } from "/Users/redelectricity/Documents/Projects/SPICE/SPICE_GUI/node_modules/.pnpm/@inlang+sdk@2.10.2/node_modules/@inlang/sdk/dist/index.js";
+import fs from "node:fs";
+const p = await loadProjectFromDirectory({ path: "/Users/redelectricity/Documents/Projects/SPICE/SPICE_GUI/project.inlang", fs });
+const errs = await p.errors.get();
+let out = "ERRORS:\n" + JSON.stringify(errs.map(e => ({ type: e.type, message: e.message?.slice?.(0, 300), plugin: e.plugin })), null, 1);
+out += "\nBUNDLE ROWS: " + (await p.db.selectFrom("bundle").selectAll().execute()).length + "\n";
+out += "\nPLUGINS: " + JSON.stringify(p.plugins?.map(pl => pl.id)) + "\n";
+out += "\nSETTINGS: " + JSON.stringify(p.settings.get()) + "\n";
+fs.writeFileSync("/tmp/pgout.txt", out);
+console.log("written");
