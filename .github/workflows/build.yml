@@ -11,8 +11,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
-  # All artifacts are unsigned (Windows code signing / Apple notarization / Android keystore
-  # are all unconfigured; once configured, just pass the secret in the matching job — see each job's comment spot).
+  # Android APKs are signed via ANDROID_KEYSTORE_* secrets (see android job).
+  # Windows code signing / Apple notarization are still unconfigured; once configured,
+  # just pass the secret in the matching job — see each job's comment spot.
   CARGO_TERM_COLOR: always
   # The full 7-locale Paraglide catalog (~2700 message modules) pushes the vite build past
   # Node's default heap on the smaller runners — the first full-catalog macOS run died with
@@ -189,7 +190,9 @@ jobs:
   # 1.3.11 / ort-sys / mafft / libmsa); ort-sys ships an official prebuilt
   # aarch64-linux-android+nnapi static lib, but it links libc++_shared dynamically — so
   # the NDK's libc++_shared.so must be bundled into jniLibs, otherwise ONNX loading crashes at runtime.
-  # The artifact is an unsigned debug-key APK (tauri default); formal distribution needs a keystore.
+  # With ANDROID_KEYSTORE_* secrets set (they are), the release APK is signed with the
+  # project keystore → artifact is app-universal-release.apk (no '-unsigned' suffix).
+  # Without the secrets it falls back to the debug key exactly like a local build.
   # ==========================================================================
   android-arm64:
     runs-on: ubuntu-latest
@@ -286,3 +289,36 @@ jobs:
           name: spice-gui-android-arm64-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+  # ==========================================================================
+  # GitHub Release — ONLY on tag push (v*). workflow_dispatch runs stay artifact-only:
+  # no release is created for manual builds (the if: below is the whole gate).
+  # Artifacts from all five build jobs are flattened into one directory; filenames
+  # already carry arch/extension (amd64 vs arm64 deb, x86_64 vs aarch64 rpm, …) so
+  # merge-multiple cannot collide. Tags containing '-' (rc/beta) publish as prerelease.
+  # ==========================================================================
+  release:
+    if: github.event_name == 'push'
+    needs: [desktop, android-arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spice-gui-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SPICE GUI ${{ github.ref_name }}
+          generate_release_notes: true
+          make_latest: "true"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            artifacts/*
