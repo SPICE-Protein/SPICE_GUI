@@ -306,16 +306,26 @@ jobs:
       contents: write
     steps:
       # Annotated tag message IS the release body (git tag -a -m '…'); lightweight
-      # or message-less tags fall back to GitHub's generated notes.
-      - uses: actions/checkout@v4
-        with:
-          fetch-tags: true
-
+      # tags fall back to the commit message, and an empty result to generated notes.
+      # NO actions/checkout: its tag-push fetch breaks on annotated tags
+      # ("Cannot fetch both <commit> and refs/tags/<t> to refs/tags/<t>",
+      # actions/checkout#1169 — it killed the first v0.0.2 release run), and this
+      # job needs no source tree anyway — artifacts come from download-artifact
+      # and the tag annotation is read through the git API below.
       - name: Read tag annotation
         id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          MSG=$(git tag -l --format='%(contents:body)' "${GITHUB_REF_NAME}")
-          { echo 'body<<BODYEOF'; printf '%s\n' "$MSG"; echo 'BODYEOF'; } >> "$GITHUB_OUTPUT"
+          OBJ=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}" --jq '.object')
+          TYPE=$(printf '%s' "$OBJ" | jq -r '.type')
+          SHA=$(printf '%s' "$OBJ" | jq -r '.sha')
+          if [ "$TYPE" = "tag" ]; then
+            MSG=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${SHA}" --jq '.message // ""')
+          else
+            MSG=$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${SHA}" --jq '.message // ""')
+          fi
+          { printf 'body<<BODYEOF\n%s\nBODYEOF\n' "$MSG"; } >> "$GITHUB_OUTPUT"
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
