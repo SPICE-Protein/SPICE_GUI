@@ -67,6 +67,9 @@
     if (!header) return;
 
     header.style.cursor = 'move';
+    // Without this, Android treats a finger drag on the header as a scroll gesture
+    // and steals it via pointercancel before the panel ever moves.
+    header.style.touchAction = 'none';
     header.addEventListener('pointerdown', dragStart);
 
     function dragStart(e: PointerEvent) {
@@ -79,6 +82,7 @@
       header.setPointerCapture(e.pointerId);
       header.addEventListener('pointermove', handlePointerMove);
       header.addEventListener('pointerup', dragEnd);
+      header.addEventListener('pointercancel', dragEnd);
     }
 
     function handlePointerMove(e: PointerEvent) {
@@ -91,9 +95,10 @@
 
     function dragEnd(e: PointerEvent) {
       active = false;
-      header.releasePointerCapture(e.pointerId);
+      try { header.releasePointerCapture(e.pointerId); } catch { /* already released (pointercancel) */ }
       header.removeEventListener('pointermove', handlePointerMove);
       header.removeEventListener('pointerup', dragEnd);
+      header.removeEventListener('pointercancel', dragEnd);
     }
 
     return {

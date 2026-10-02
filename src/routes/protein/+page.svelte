@@ -339,6 +339,9 @@ Variant_M5,I32L + L45M + L50M`);
 
   let tab = $state('fold');
   let pinMdMonitor = $state(false);
+  // Tap-toggle for the retro menu bar: touch devices have no hover, so each
+  // .menu-item-container can also be pinned open via click (see .menu-open CSS).
+  let openMenuId = $state<string | null>(null);
 
   $effect(() => {
     if (typeof localStorage !== 'undefined') {
@@ -1594,8 +1597,8 @@ Variant_M5,I32L + L45M + L50M`);
 
   <!-- Retro-style Menu Bar -->
   <div class="menu-bar" style="display: flex; gap: 4px; padding: 4px 8px; background: var(--pix-bg-3); border-bottom: 2px solid var(--pix-border); font-size: 11px; z-index: 9999; align-items: center; flex: 0 0 auto;">
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuFile()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'file'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'file' ? null : 'file'; }}>{m.menuFile()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={() => pdbFileInput?.click()}>
           <FileUp size={12} /> {m.menuOpen()}
@@ -1616,8 +1619,8 @@ Variant_M5,I32L + L45M + L50M`);
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuModeling()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'modeling'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'modeling' ? null : 'modeling'; }}>{m.menuModeling()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={doFold} disabled={foldBusy}>
           <Dna size={12} /> {m.menuRunFold()}
@@ -1632,8 +1635,8 @@ Variant_M5,I32L + L45M + L50M`);
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuMutation()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'mutation'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'mutation' ? null : 'mutation'; }}>{m.menuMutation()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={() => { tab = 'mut'; }}>
           <Layers size={12} /> {m.menuScanMutations()}
@@ -1654,8 +1657,8 @@ Variant_M5,I32L + L45M + L50M`);
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuWindow()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'window'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'window' ? null : 'window'; }}>{m.menuWindow()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {tab === 'fold' ? 'active' : ''}" onclick={() => { tab = 'fold'; }}>
           {m.menuPaneFolding()}
@@ -2441,6 +2444,9 @@ Variant_M5,I32L + L45M + L50M`);
   <!-- ============ TOASTS ============ -->
   <Toaster />
 
+  <!-- Any click outside a menu trigger/dropdown unpins the open menu. -->
+  <svelte:window onclick={() => { openMenuId = null; }} />
+
 <style>
   /* Dropdown Menu Styles */
   .menu-item-container {
@@ -2480,6 +2486,22 @@ Variant_M5,I32L + L45M + L50M`);
   .menu-item-container:hover .menu-dropdown {
     display: flex;
     flex-direction: column;
+  }
+  /* Tap-toggle: a clicked menu stays pinned open (see openMenuId). */
+  .menu-item-container.menu-open .menu-dropdown {
+    display: flex;
+    flex-direction: column;
+  }
+  /* Touch devices have no reliable hover — Android's sticky :hover would fight the
+     tap-toggle, so hover-open is disabled and .menu-open is the sole opener. */
+  @media (hover: none) {
+    .menu-item-container:hover .menu-dropdown {
+      display: none;
+    }
+    .menu-item-container.menu-open .menu-dropdown {
+      display: flex;
+      flex-direction: column;
+    }
   }
   .menu-action-btn {
     background: none;

@@ -254,8 +254,10 @@
   let totalContentH = $state(1000);
 
  onMount(() => {
-   // Mobile/iPad detection and force virtual keyboard load
-   isMobileOrPad = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+   // Touch-first detection: desktop-mode tablets report a UA without "Android", so the
+   // primary pointer's coarseness is the reliable signal; UA stays as a fallback.
+   isMobileOrPad = (window.matchMedia?.('(pointer: coarse)').matches ?? false)
+     || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
    forceVirtualKeyboard = localStorage.getItem('spice_force_virtual_keyboard') === 'true';
 
    // Load persisted custom codon state
@@ -319,6 +321,36 @@
     }
   }
 
+  // Resolve a base position against ALL rows (not just the row the pointer went
+  // down on). Row canvases hold pointer capture during a drag, but events still
+  // bubble to this container — so this drives cross-row selection for mouse AND touch.
+  function resolveGlobalBasePos(clientX: number, clientY: number): number | null {
+    if (!containerEl) return null;
+    const rect = containerEl.getBoundingClientRect();
+    const localX = clientX - rect.left - LEFT_MARGIN;
+    if (localX < 0) return null;
+    const localY = clientY - rect.top + containerEl.scrollTop;
+    const layout = rowLayouts.layouts.find((l: any) => localY >= l.top && localY < l.top + l.height);
+    if (!layout) return null;
+    const charIdx = Math.floor(localX / CHAR_W);
+    const maxPos = seqTool === 'edit' ? layout.row.end + 1 : layout.row.end;
+    return Math.max(layout.row.start, Math.min(layout.row.start + charIdx, maxPos));
+  }
+
+  function handleContainerPointerMove(e: PointerEvent) {
+    handleMouseMoveContainer(e);
+    if (!isDraggingSelect || selectDragAnchor === null) return;
+    const pos = resolveGlobalBasePos(e.clientX, e.clientY);
+    if (pos === null) return;
+    if (pos < selectDragAnchor) {
+      selectionStart = pos;
+      selectionEnd = selectDragAnchor;
+    } else {
+      selectionStart = selectDragAnchor;
+      selectionEnd = pos;
+    }
+  }
+
   // ---------------- Clicked Feature Tooltip (SnapGene-style) ----------------
   let clickedFeature = $state<any>(null);
   let tooltipLeft = $state(0);
@@ -339,8 +371,9 @@
     tooltipDragStart = { x: e.clientX, y: e.clientY };
     tooltipPositionStart = { left: tooltipLeft, top: tooltipTop };
 
-    window.addEventListener('mousemove', handleTooltipMouseMove);
-    window.addEventListener('mouseup', handleTooltipMouseUp);
+    window.addEventListener('pointermove', handleTooltipMouseMove);
+    window.addEventListener('pointerup', handleTooltipMouseUp);
+    window.addEventListener('pointercancel', handleTooltipMouseUp);
   }
 
   function handleTooltipMouseMove(e: MouseEvent) {
@@ -353,8 +386,9 @@
 
   function handleTooltipMouseUp() {
     isDraggingTooltip = false;
-    window.removeEventListener('mousemove', handleTooltipMouseMove);
-    window.removeEventListener('mouseup', handleTooltipMouseUp);
+    window.removeEventListener('pointermove', handleTooltipMouseMove);
+    window.removeEventListener('pointerup', handleTooltipMouseUp);
+    window.removeEventListener('pointercancel', handleTooltipMouseUp);
   }
 
   // Draggable Selection Tooltip State
@@ -390,8 +424,9 @@
     selectionTooltipDragStart = { x: e.clientX, y: e.clientY };
     selectionTooltipPositionStart = { left: selectionTooltipLeft, top: selectionTooltipTop };
 
-    window.addEventListener('mousemove', handleSelectionTooltipMouseMove);
-    window.addEventListener('mouseup', handleSelectionTooltipMouseUp);
+    window.addEventListener('pointermove', handleSelectionTooltipMouseMove);
+    window.addEventListener('pointerup', handleSelectionTooltipMouseUp);
+    window.addEventListener('pointercancel', handleSelectionTooltipMouseUp);
   }
 
   function handleSelectionTooltipMouseMove(e: MouseEvent) {
@@ -404,8 +439,9 @@
 
   function handleSelectionTooltipMouseUp() {
     isDraggingSelectionTooltip = false;
-    window.removeEventListener('mousemove', handleSelectionTooltipMouseMove);
-    window.removeEventListener('mouseup', handleSelectionTooltipMouseUp);
+    window.removeEventListener('pointermove', handleSelectionTooltipMouseMove);
+    window.removeEventListener('pointerup', handleSelectionTooltipMouseUp);
+    window.removeEventListener('pointercancel', handleSelectionTooltipMouseUp);
   }
 
   // Auto-reset selection tooltip position when selection changes
@@ -1264,7 +1300,7 @@
      onscroll={handleScroll}
      onkeydown={handleKeyDown}
      onpaste={handlePaste}
-     onmousemove={handleMouseMoveContainer}
+     onpointermove={handleContainerPointerMove}
    >
      <!-- Virtual scroll height placeholder -->
      <div style="height: {rowLayouts.totalHeight}px; width: 100%; position: absolute; top: 0; left: 0; pointer-events: none;"></div>
@@ -1325,9 +1361,9 @@
 {#if clickedFeature}
   {@const stats = getFeatureStats(clickedFeature)}
   <div style="position: absolute; left: {tooltipLeft}px; top: {tooltipTop}px; width: 240px; background: #0c0f16; border: 1.5px solid {clickedFeature.color || 'var(--pix-cyan)'}; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.8), inset 0 0 10px rgba(255,255,255,0.05); padding: 8px 10px; z-index: 1000; font-size: 10px; font-family: var(--pix-font);">
-    <div 
-      onmousedown={handleTooltipMouseDown}
-      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 3px; cursor: move; user-select: none;"
+    <div
+      onpointerdown={handleTooltipMouseDown}
+      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 3px; cursor: move; user-select: none; touch-action: none;"
     >
       <span style="font-weight: 600; color: {clickedFeature.color || 'var(--pix-cyan)'}; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;">{clickedFeature.name} ✥</span>
       <button class="pix-btn-reset" onclick={() => clickedFeature = null} style="font-size: 10px; color: var(--pix-red); cursor: pointer; border: none; background: transparent; padding: 0 2px;">[X]</button>
@@ -1365,8 +1401,8 @@
       : `position: absolute; bottom: ${isVirtualKeyboardVisible ? '145px' : '42px'}; left: 50%; transform: translateX(-50%); width: 280px; background: #0c101a; border: 1.5px solid var(--pix-accent-2); border-radius: 6px; box-shadow: 0 4px 20px rgba(0,0,0,0.9); padding: 8px 12px; z-index: 1000; font-size: 10px; font-family: var(--pix-font); text-align: left;`}
   >
     <div 
-      onmousedown={handleSelectionTooltipMouseDown}
-      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 3px; cursor: move; user-select: none;"
+      onpointerdown={handleSelectionTooltipMouseDown}
+      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 3px; cursor: move; user-select: none; touch-action: none;"
     >
       <span style="font-weight: bold; color: var(--pix-accent-2); font-size: 10.5px;">{m.labelSelectionProperties()} ✥</span>
       <button class="pix-btn-reset" onclick={() => { selectionStart = 1; selectionEnd = 1; }} style="font-size: 10px; color: var(--pix-red); cursor: pointer; border: none; background: transparent; padding: 0 2px;">[X]</button>

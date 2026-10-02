@@ -259,12 +259,17 @@
   style="position: relative; height: {rowHeight}px; min-width: 100%; flex: 0 0 auto; user-select: none;"
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- Pointer events + capture: mouse keeps cross-row drag via the container's
+       global resolver (events bubble even while captured here); touch gets
+       horizontal drag-select while pan-y leaves vertical scrolling to the browser.
+       A browser-stolen pan fires pointercancel → we end the drag cleanly. -->
   <canvas
     bind:this={canvasEl}
-    style="width: 100%; height: {rowHeight}px; display: block; cursor: text;"
-    onmousedown={handleMouseDown}
-    onmousemove={handleMouseMove}
-    onmouseup={onMouseUp}
-    onmouseleave={handleMouseLeave}
+    style="width: 100%; height: {rowHeight}px; display: block; cursor: text; touch-action: pan-y;"
+    onpointerdown={(e) => { canvasEl?.setPointerCapture(e.pointerId); handleMouseDown(e); }}
+    onpointermove={handleMouseMove}
+    onpointerup={(e) => { try { canvasEl?.releasePointerCapture(e.pointerId); } catch { /* capture already gone */ } onMouseUp(); }}
+    onpointercancel={() => onMouseUp()}
+    onpointerleave={handleMouseLeave}
   ></canvas>
 </div>

@@ -203,6 +203,9 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     const baseTransform = (node.style.transform || '').trim();
 
     header.style.cursor = 'move';
+    // Without this, Android treats a finger drag on the header as a scroll gesture
+    // and steals it via pointercancel before the panel ever moves.
+    header.style.touchAction = 'none';
     header.addEventListener('pointerdown', dragStart);
 
     // Initialize global maxZIndex on window if not present
@@ -230,6 +233,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       header.setPointerCapture(e.pointerId);
       header.addEventListener('pointermove', handlePointerMove);
       header.addEventListener('pointerup', dragEnd);
+      header.addEventListener('pointercancel', dragEnd);
     }
 
     function handlePointerMove(e: PointerEvent) {
@@ -242,9 +246,10 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
     function dragEnd(e: PointerEvent) {
       active = false;
-      header.releasePointerCapture(e.pointerId);
+      try { header.releasePointerCapture(e.pointerId); } catch { /* already released (pointercancel) */ }
       header.removeEventListener('pointermove', handlePointerMove);
       header.removeEventListener('pointerup', dragEnd);
+      header.removeEventListener('pointercancel', dragEnd);
     }
 
     return {
@@ -355,6 +360,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   let showCloningModal = $state(false);
   let showExportModal = $state(false);
   let activeTab = $state<'circular' | 'linear' | 'sequence' | 'features' | 'properties' | 'notes'>('circular');
+  // Tap-toggle for the retro menu bar (touch devices have no hover; same pattern as protein).
+  let openMenuId = $state<string | null>(null);
   let geneFileInput = $state<HTMLInputElement | null>(null);
 
   const activeTabsList = $derived.by(() => {
@@ -2904,7 +2911,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   }
 </script>
 
-<svelte:window onkeydown={handleGlobalKeyDown} />
+<svelte:window onkeydown={handleGlobalKeyDown} onclick={() => { openMenuId = null; }} />
 
 <div class="ove-editor" style="position: relative; flex: 1 1 auto; width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: {bgColor}; font-family: var(--pix-font);">
  <!-- SnapGene parity: customizable background color -->
@@ -2914,8 +2921,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
   <!-- Retro-style Menu Bar -->
   <div class="menu-bar" style="display: flex; gap: 4px; padding: 4px 8px; background: var(--pix-bg-3); border-bottom: 2px solid var(--pix-border); font-size: 11px; z-index: 9999; align-items: center;">
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuFile()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'file'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'file' ? null : 'file'; }}>{m.menuFile()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={() => geneFileInput?.click()}>
           <FileUpIcon size={12} /> {m.menuFileOpen()}
@@ -2946,8 +2953,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuEdit()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'edit'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'edit' ? null : 'edit'; }}>{m.menuEdit()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={undo} disabled={!canUndo}>
           <Undo2 size={12} /> {m.menuEditUndo()}
@@ -2978,8 +2985,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuCloningDesign()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'cloning'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'cloning' ? null : 'cloning'; }}>{m.menuCloningDesign()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {showEnzymeSelector ? 'active' : ''}" onclick={() => showEnzymeSelector = !showEnzymeSelector}>
           <Scissors size={12} /> {m.menuCloneEnzymes()}
@@ -3054,8 +3061,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuAnalysisViews()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'analysis'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'analysis' ? null : 'analysis'; }}>{m.menuAnalysisViews()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {showProteinView ? 'active' : ''}" onclick={() => showProteinView = !showProteinView}>
           <Layers size={12} /> {m.menuViewProtein()}
@@ -3090,8 +3097,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       </div>
     </div>
 
-    <div class="menu-item-container">
-      <button class="menu-trigger">{m.menuWindow()}</button>
+    <div class="menu-item-container" class:menu-open={openMenuId === 'window'}>
+      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'window' ? null : 'window'; }}>{m.menuWindow()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {showHistoryPanel ? 'active' : ''}" onclick={() => showHistoryPanel = !showHistoryPanel}>
           {m.menuWinHistory()}
@@ -4438,6 +4445,22 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   .menu-item-container:hover .menu-dropdown {
     display: flex;
     flex-direction: column;
+  }
+  /* Tap-toggle: a clicked menu stays pinned open (see openMenuId). */
+  .menu-item-container.menu-open .menu-dropdown {
+    display: flex;
+    flex-direction: column;
+  }
+  /* Touch devices have no reliable hover — Android's sticky :hover would fight the
+     tap-toggle, so hover-open is disabled and .menu-open is the sole opener. */
+  @media (hover: none) {
+    .menu-item-container:hover .menu-dropdown {
+      display: none;
+    }
+    .menu-item-container.menu-open .menu-dropdown {
+      display: flex;
+      flex-direction: column;
+    }
   }
   .menu-action-btn {
     background: none;
