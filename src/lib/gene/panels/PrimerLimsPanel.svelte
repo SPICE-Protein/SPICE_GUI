@@ -46,7 +46,7 @@
   const gridData = $derived(generate2DGrid(primerInventory.map((p: any) => ({ sampleId: p.id, name: p.name, type: 'primer', position: p.location })), freezerGridType));
 </script>
 
-<div use:drag={drag} class="floating-panel pix-panel" style="position: absolute; left: 440px; top: 120px; width: 440px; z-index: 55;">
+<div use:drag={'.panel-header'} class="floating-panel pix-panel" style="position: absolute; left: 440px; top: 120px; width: 440px; z-index: 55;">
   <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--pix-border); padding-bottom: 4px; margin-bottom: 6px;">
     <span style="font-weight: bold; color: var(--pix-accent-2); font-size: 10.5px; display: inline-flex; align-items: center; gap: 4px;"><Folder size={12} /> {m.primerLIMSLite()}</span>
     <button class="pix-btn-reset" onclick={() => showPrimersLimsPanel = false} style="font-size: 11px; color: var(--pix-red); cursor: pointer;">[X]</button>
