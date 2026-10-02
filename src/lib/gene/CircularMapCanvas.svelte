@@ -415,8 +415,24 @@ function handleWheel(e: WheelEvent) {
   function zoomIn() { zoomLevel = Math.min(maxZoomLevel, zoomLevel * 1.3); }
   function zoomOut() { zoomLevel = Math.max(1, zoomLevel / 1.3); }
   function resetView() { zoomLevel = 1; rotationRadians = 0; panX = 0; panY = 0; }
+  // --- Two-finger pinch zoom (touch) ---
+  const activePointers = new Map<number, { x: number; y: number }>();
+  let pinchStart: { dist: number; zoom: number } | null = null;
+
  function handlePointerDown(e: PointerEvent) {
    if (e.button !== 0) return;
+   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+   if (activePointers.size === 2) {
+     // Second finger: take over as pinch, abandoning whatever single drag ran.
+     const [a, b] = [...activePointers.values()];
+     pinchStart = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: zoomLevel };
+     selectDrag = null;
+     panDrag = null;
+     dragState = null;
+     canvasEl?.setPointerCapture(e.pointerId);
+     return;
+   }
+   if (pinchStart || activePointers.size > 2) return;
    if (activeTool === 'select') {
      const bp = getMouseBpOnCircle(e);
      selectDrag = { startBp: bp, dragging: true };
@@ -431,6 +447,14 @@ function handleWheel(e: WheelEvent) {
    canvasEl?.setPointerCapture(e.pointerId);
  }
  function handlePointerMove(e: PointerEvent) {
+   if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+   if (pinchStart && activePointers.size >= 2) {
+     const [a, b] = [...activePointers.values()];
+     const dist = Math.hypot(a.x - b.x, a.y - b.y);
+     zoomLevel = Math.min(maxZoomLevel, Math.max(1, pinchStart.zoom * (dist / pinchStart.dist)));
+     return;
+   }
+   if (pinchStart) return;
    if (selectDrag?.dragging) {
      const currentBp = getMouseBpOnCircle(e);
      selectionStart = selectDrag.startBp;
@@ -448,7 +472,9 @@ function handleWheel(e: WheelEvent) {
     const dx = e.clientX - dragState.startX;
     rotationRadians = ((dragState.startRot + (dx / 160) * Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
   }
-  function handlePointerUp() {
+  function handlePointerUp(e: PointerEvent) {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size < 2) pinchStart = null;
     selectDrag = null;
     dragState = null;
     panDrag = null;

@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "{v1} Fold(s) gefunden",
   "spdQueryNoCache": "Keine lokale SPD-ID für diese Sequenz — veröffentlichen; der Server dedupliziert automatisch",
   "spdFoldIdLabel": "fold-ID:",
-  "spdQueryNoCurrent": "Für diese Sequenz noch kein Fold; Stapel fand insgesamt {v1}"
+  "spdQueryNoCurrent": "Für diese Sequenz noch kein Fold; Stapel fand insgesamt {v1}",
+  "projectRenameBtn": "Umbenennen",
+  "batchLoadBtn": "In Arbeitsbereich laden",
+  "menuWinResetLayout": "Paneelbreite zurücksetzen"
 }

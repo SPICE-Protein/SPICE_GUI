@@ -3109,6 +3109,10 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         <button class="menu-action-btn {showSettingsPanel ? 'active' : ''}" onclick={() => showSettingsPanel = !showSettingsPanel}>
           {m.menuWinSettings()}
         </button>
+        <!-- Touch-friendly alternative to the resizer's dblclick-to-reset gesture. -->
+        <button class="menu-action-btn" onclick={() => { leftW = 640; persistSplit(); }}>
+          {m.menuWinResetLayout()}
+        </button>
         <div class="menu-divider"></div>
         <button class="menu-action-btn" onclick={() => showSingleStrand = !showSingleStrand}>
           {showSingleStrand ? m.menuWinDoubleStrand() : m.menuWinSingleStrand()}

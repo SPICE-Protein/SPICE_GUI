@@ -40,7 +40,8 @@
     Library,
     Paperclip,
     Eye,
-    File as FileIcon
+    File as FileIcon,
+    Pencil
   } from 'lucide-svelte';
 
   let openProjectFile = $state<HTMLInputElement | undefined>();
@@ -389,6 +390,7 @@
                 {/if}
                 <span class="res-actions">
                   <button class="ra-btn" title={m.projectDocOpenBtn()} onclick={() => openDoc(doc.id, doc.kind)}><ExternalLink size={11} /></button>
+                  <button class="ra-btn" title={m.projectRenameBtn()} onclick={() => startRenameDoc(doc.id, doc.name)}><Pencil size={11} /></button>
                   <button class="ra-btn" title={m.projectDocExportBtn()} onclick={() => exportDoc(doc.id)}><Download size={11} /></button>
                   <button class="ra-btn ra-danger" title={m.projectDocRemoveBtn()} onclick={() => (removeDocTarget = doc.id)}><Trash2 size={11} /></button>
                 </span>
@@ -433,6 +435,7 @@
                 <span class="file-size pix-dim">{fmtSize(f.size)}</span>
                 <span class="res-actions">
                   <button class="ra-btn" title={m.projectFilePreviewBtn()} onclick={() => openPreview(f)}><Eye size={11} /></button>
+                  <button class="ra-btn" title={m.projectRenameBtn()} onclick={() => startRenameFile(f.id, f.name)}><Pencil size={11} /></button>
                   <button class="ra-btn" title={m.projectFileSaveBtn()} onclick={() => saveFileAs(f)}><Download size={11} /></button>
                   <button class="ra-btn ra-danger" title={m.projectFileRemoveBtn()} onclick={() => (removeFileTarget = f.id)}><Trash2 size={11} /></button>
                 </span>

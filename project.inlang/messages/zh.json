@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "查询到 {v1} 条 fold",
   "spdQueryNoCache": "本机未记录该序列的 SPD ID；点发布即可（服务端自动去重）",
   "spdFoldIdLabel": "fold ID:",
-  "spdQueryNoCurrent": "当前序列暂无 fold；批量共找到 {v1} 条"
+  "spdQueryNoCurrent": "当前序列暂无 fold；批量共找到 {v1} 条",
+  "projectRenameBtn": "重命名",
+  "batchLoadBtn": "载入工作台",
+  "menuWinResetLayout": "重置分栏宽度"
 }

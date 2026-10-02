@@ -137,8 +137,22 @@
   }
   let hitZones = $state<HitZone[]>([]);
   // Pointer event handlers
+  // --- Two-finger pinch zoom (touch) ---
+  const activePointers = new Map<number, { x: number; y: number }>();
+  let pinchStart: { dist: number; zoom: number } | null = null;
+
   function handlePointerDown(e: PointerEvent) {
     if (e.button !== 0) return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointers.size === 2) {
+      // Second finger: take over as pinch, abandoning whatever single drag ran.
+      const [a, b] = [...activePointers.values()];
+      pinchStart = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: zoomScale };
+      dragState = null;
+      canvasEl?.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (pinchStart || activePointers.size > 2) return;
     const rect = canvasEl?.getBoundingClientRect();
     if (!rect) return;
     const mouseX = e.clientX - rect.left;
@@ -160,6 +174,15 @@
     canvasEl?.setPointerCapture(e.pointerId);
   }
   function handlePointerMove(e: PointerEvent) {
+    if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinchStart && activePointers.size >= 2) {
+      const [a, b] = [...activePointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      zoomScale = Math.min(maxZoom, Math.max(1, pinchStart.zoom * (dist / pinchStart.dist)));
+      clampPan();
+      return;
+    }
+    if (pinchStart) return;
     if (!dragState) return;
     const rect = canvasEl?.getBoundingClientRect();
     if (!rect) return;
@@ -180,7 +203,9 @@
       }
     }
   }
-  function handlePointerUp() {
+  function handlePointerUp(e: PointerEvent) {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size < 2) pinchStart = null;
     dragState = null;
   }
   function handleWheel(e: WheelEvent) {

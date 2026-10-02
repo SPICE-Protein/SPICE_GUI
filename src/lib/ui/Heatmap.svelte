@@ -105,7 +105,7 @@
     }
   }
 
-  function onMove(e: MouseEvent) {
+  function readCell(clientX: number, clientY: number) {
     const cv = canvas;
     if (!cv || rows === 0 || cols === 0) return;
     const rect = cv.getBoundingClientRect();
@@ -113,8 +113,8 @@
     const padTop = 16;
     const cw = (rect.width - padX * 2) / cols;
     const ch = (rect.height - padTop - 6) / rows;
-    const j = Math.floor((e.clientX - rect.left - padX) / cw);
-    const i = Math.floor((e.clientY - rect.top - padTop) / ch);
+    const j = Math.floor((clientX - rect.left - padX) / cw);
+    const i = Math.floor((clientY - rect.top - padTop) / ch);
     if (i < 0 || i >= rows || j < 0 || j >= cols) {
       hover = '';
       return;
@@ -132,6 +132,13 @@
     }
   }
 
+  // Live hover is mouse-only; touch has no hover, so a tap reads the cell
+  // (see onpointerdown in the template) and the chip stays until the next tap.
+  function onMove(e: PointerEvent) {
+    if (e.pointerType !== 'mouse') return;
+    readCell(e.clientX, e.clientY);
+  }
+
   onMount(() => {
     draw();
   });
@@ -144,7 +151,8 @@
   {#if values.length}
     <canvas
       bind:this={canvas}
-      onmousemove={onMove}
+      onpointermove={onMove}
+      onpointerdown={(e) => readCell(e.clientX, e.clientY)}
       onmouseleave={() => (hover = '')}
     ></canvas>
     {#if hover}

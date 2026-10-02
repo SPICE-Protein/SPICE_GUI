@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "{v1} fold(s) found",
   "spdQueryNoCache": "No local SPD id for this sequence yet — press publish; the server dedups automatically",
   "spdFoldIdLabel": "fold ID:",
-  "spdQueryNoCurrent": "No fold for this sequence yet; batch found {v1} in total"
+  "spdQueryNoCurrent": "No fold for this sequence yet; batch found {v1} in total",
+  "projectRenameBtn": "Rename",
+  "batchLoadBtn": "Load into workspace",
+  "menuWinResetLayout": "Reset pane width"
 }

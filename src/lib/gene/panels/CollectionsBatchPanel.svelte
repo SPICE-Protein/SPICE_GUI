@@ -62,6 +62,14 @@
     }
   }
 
+  // Touch-friendly alternative to the row's dblclick-to-load gesture.
+  function loadToWorkspace(item: any) {
+    dnaSeq = item.seq;
+    plasmidName = item.name.split('.')[0];
+    pushLog(m.batchDblClickLoadLog({ v1: item.name, v2: item.size }));
+    pushToast('success', m.loadSuccess(), item.name);
+  }
+
   function deleteCollectionFile(id: string) {
     const item = collectionsList.find((f: any) => f.id === id);
     if (!item) return;
@@ -354,7 +362,7 @@
             <th style="padding: 4px; width: 45px;">{m.batchFormat()}</th>
             <th style="padding: 4px; width: 85px;">{m.batchColCopyNumber()}</th>
             <th style="padding: 4px; width: 85px;">{m.batchColResistance()}</th>
-            <th style="padding: 4px; width: 20px;"></th>
+            <th style="padding: 4px; width: 36px;"></th>
           </tr>
         </thead>
         <tbody>
@@ -364,12 +372,7 @@
             <tr 
               style="border-bottom: 1px solid rgba(255,255,255,0.03); cursor: pointer; background: {selectedCollectionFiles.includes(item.name) ? 'rgba(76,214,255,0.08)' : 'transparent'};"
               onclick={() => toggleSelectFile(item.name)}
-              ondblclick={() => {
-                dnaSeq = item.seq;
-                plasmidName = item.name.split('.')[0];
-                pushLog(m.batchDblClickLoadLog({ v1: item.name, v2: item.size }));
-                pushToast('success', m.loadSuccess(), item.name);
-              }}
+              ondblclick={() => loadToWorkspace(item)}
             >
               <td style="padding: 4px; text-align: center;">
                 <input type="checkbox" checked={selectedCollectionFiles.includes(item.name)} style="cursor: pointer;" onclick={(e) => { e.stopPropagation(); toggleSelectFile(item.name); }} />
@@ -386,10 +389,13 @@
               <td style="padding: 4px; color: var(--pix-cyan);">{item.format}</td>
               <td style="padding: 4px; color: var(--pix-accent);">{item.copyNumber || 'N/A'}</td>
               <td style="padding: 4px; color: var(--pix-purple); font-weight: bold;">{item.resistance || 'None'}</td>
-              <td style="padding: 4px; text-align: center;">
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <td style="padding: 4px; text-align: center; white-space: nowrap;">
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <span style="color: var(--pix-red); cursor: pointer;" onclick={(e) => { e.stopPropagation(); deleteCollectionFile(item.id); }}>
+                <span style="color: var(--pix-cyan); cursor: pointer; margin-right: 8px;" role="button" tabindex="0" title={m.batchLoadBtn()} onclick={(e) => { e.stopPropagation(); loadToWorkspace(item); }} onkeydown={(e) => { if (e.key === 'Enter') loadToWorkspace(item); }}>
+                  <FileUp size={10} />
+                </span>
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span style="color: var(--pix-red); cursor: pointer;" role="button" tabindex="0" title={m.delete()} onclick={(e) => { e.stopPropagation(); deleteCollectionFile(item.id); }} onkeydown={(e) => { if (e.key === 'Enter') deleteCollectionFile(item.id); }}>
                   <Trash2 size={10} />
                 </span>
               </td>

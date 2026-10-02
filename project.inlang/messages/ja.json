@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "{v1} 件のフォールドを検出",
   "spdQueryNoCache": "ローカルにこの配列の SPD ID が未記録。公開を押してください（サーバー側で自動重複排除）",
   "spdFoldIdLabel": "fold ID:",
-  "spdQueryNoCurrent": "この配列の fold はまだなし。一括では計 {v1} 件"
+  "spdQueryNoCurrent": "この配列の fold はまだなし。一括では計 {v1} 件",
+  "projectRenameBtn": "名前を変更",
+  "batchLoadBtn": "ワークスペースに読み込む",
+  "menuWinResetLayout": "ペイン幅をリセット"
 }

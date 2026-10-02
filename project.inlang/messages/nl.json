@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "{v1} fold(s) gevonden",
   "spdQueryNoCache": "Geen lokale SPD-id voor deze sequentie — publiceer; de server dedupliceert automatisch",
   "spdFoldIdLabel": "fold-ID:",
-  "spdQueryNoCurrent": "Nog geen fold voor deze sequence; batch vond in totaal {v1}"
+  "spdQueryNoCurrent": "Nog geen fold voor deze sequence; batch vond in totaal {v1}",
+  "projectRenameBtn": "Naam wijzigen",
+  "batchLoadBtn": "Laden in werkruimte",
+  "menuWinResetLayout": "Paneelbreedte herstellen"
 }

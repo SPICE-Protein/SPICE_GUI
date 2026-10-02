@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "Hittade {v1} fold(ar)",
   "spdQueryNoCache": "Inget lokalt SPD-id för denna sekvens – publicera; servern deduplicerar automatiskt",
   "spdFoldIdLabel": "fold-ID:",
-  "spdQueryNoCurrent": "Ingen fold för denna sekvens än; batch hittade {v1} totalt"
+  "spdQueryNoCurrent": "Ingen fold för denna sekvens än; batch hittade {v1} totalt",
+  "projectRenameBtn": "Byt namn",
+  "batchLoadBtn": "Ladda in i arbetsytan",
+  "menuWinResetLayout": "Återställ panelbredd"
 }

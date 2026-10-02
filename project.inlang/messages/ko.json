@@ -2729,5 +2729,8 @@
   "spdQueryHitCount": "폴드 {v1}개 발견",
   "spdQueryNoCache": "로컬에 이 서열의 SPD ID가 없습니다. 게시를 누르시면 서버가 자동 중복 제거",
   "spdFoldIdLabel": "fold ID:",
-  "spdQueryNoCurrent": "이 서열엔 아직 fold 없음. 일괄 조회 총 {v1}건"
+  "spdQueryNoCurrent": "이 서열엔 아직 fold 없음. 일괄 조회 총 {v1}건",
+  "projectRenameBtn": "이름 변경",
+  "batchLoadBtn": "작업 공간에 로드",
+  "menuWinResetLayout": "패널 너비 재설정"
 }
