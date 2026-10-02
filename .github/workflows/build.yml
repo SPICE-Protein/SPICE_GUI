@@ -305,6 +305,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Annotated tag message IS the release body (git tag -a -m '…'); lightweight
+      # or message-less tags fall back to GitHub's generated notes.
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Read tag annotation
+        id: notes
+        run: |
+          MSG=$(git tag -l --format='%(contents:body)' "${GITHUB_REF_NAME}")
+          { echo 'body<<BODYEOF'; printf '%s\n' "$MSG"; echo 'BODYEOF'; } >> "$GITHUB_OUTPUT"
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -317,7 +329,8 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: SPICE GUI ${{ github.ref_name }}
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.body }}
+          generate_release_notes: ${{ steps.notes.outputs.body == '' }}
           make_latest: "true"
           prerelease: ${{ contains(github.ref_name, '-') }}
           # RECURSIVE on purpose: download-artifact preserves each artifact's internal
