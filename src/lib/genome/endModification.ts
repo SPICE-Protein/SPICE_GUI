@@ -1,4 +1,4 @@
-import { getReverseComplementSequenceString, getComplementSequenceString } from "./sequence";
+import { getReverseComplementSequenceString } from "./sequence";
 
 export type OverhangType = "5-overhang" | "3-overhang" | "blunt";
 
@@ -29,20 +29,20 @@ export class EndModificationEngine {
     let left = { ...dna.leftEnd };
     let right = { ...dna.rightEnd };
 
-    // Left End Fill-in
-    if (left.overhangType === "5-overhang" && left.overhangSeq !== "") {
-      // Add complementary bases to the 3' end of the top strand
-      const complement = getComplementSequenceString(left.overhangSeq);
-      seq = complement + seq;
+    // Left End Fill-in: a 5'-overhang at the left end belongs to the TOP strand;
+    // Klenow fills in the recessed BOTTOM strand, so the top-strand sequence
+    // (dnaSeq) is UNCHANGED — the old code wrongly prepended the complement.
+    if (left.overhangType === "5-overhang") {
       left.overhangType = "blunt";
       left.overhangSeq = "";
     }
 
-    // Right End Fill-in
+    // Right End Fill-in: a 5'-overhang at the right end belongs to the BOTTOM
+    // strand; Klenow extends the top strand's 3' end. Strands are antiparallel,
+    // so the appended bases are the REVERSE complement of the overhang
+    // (plain complement was only accidentally right for palindromes like AATT).
     if (right.overhangType === "5-overhang" && right.overhangSeq !== "") {
-      // Add complementary bases to the 3' end of the bottom strand
-      const complement = getComplementSequenceString(right.overhangSeq);
-      seq = seq + complement;
+      seq = seq + getReverseComplementSequenceString(right.overhangSeq);
       right.overhangType = "blunt";
       right.overhangSeq = "";
     }
@@ -60,15 +60,18 @@ export class EndModificationEngine {
     let left = { ...dna.leftEnd };
     let right = { ...dna.rightEnd };
 
-    // Left End Chew-back
+    // Left End Chew-back: the 3'-overhang at the left end is on the BOTTOM
+    // strand — removing it does not change the top-strand sequence.
     if (left.overhangType === "3-overhang") {
-      // Exonuclease removes the single-stranded 3' overhang
       left.overhangType = "blunt";
       left.overhangSeq = "";
     }
 
-    // Right End Chew-back
+    // Right End Chew-back: the 3'-overhang at the right end IS the top strand's
+    // own tail — the exonuclease shortens the sequence by the overhang length.
     if (right.overhangType === "3-overhang") {
+      const n = right.overhangSeq.length;
+      seq = seq.slice(0, Math.max(0, seq.length - n));
       right.overhangType = "blunt";
       right.overhangSeq = "";
     }
