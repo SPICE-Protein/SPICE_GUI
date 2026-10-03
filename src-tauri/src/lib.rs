@@ -28,6 +28,7 @@ pub fn run() {
             files::save_file_direct,
             // SPD (d-api.spicebio.top) HTTP bridge + checkpoint hashing
             spd::spd_request,
+            spd::spd_put_bytes,
             spd::model_sha256,
             // ONNX fold (pre-train model)
             spice::infer_fold,

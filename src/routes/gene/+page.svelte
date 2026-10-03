@@ -51,6 +51,10 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   import ReverseTranslationPanel from '$lib/gene/panels/ReverseTranslationPanel.svelte';
   import ExpressionCassetteBuilder from '$lib/gene/ExpressionCassetteBuilder.svelte';
   import VectorTemplatePanel from '$lib/gene/VectorTemplatePanel.svelte';
+  import type { LoadedVectorTemplate } from '$lib/spd/vectors';
+  import { exportItemsToRows, seedEnzymesToSpd as seedBuiltInEnzymes } from '$lib/spd/vectors';
+  import { configureSpdClient } from '$lib/spd/store.svelte';
+  import { spdToken } from '$lib/spd/client';
   import type { AssemblyResult, ExpressionCassette, VectorTemplate } from '$lib/genome/expressionCassette';
   import MilkdownEditor from '$lib/ui/MilkdownEditor.svelte';
   import SangerChromatogram from '$lib/gene/SangerChromatogram.svelte';
@@ -1369,6 +1373,44 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     id: 'vector-1', name: '', topology: 'circular', sequence: '', features: [], insertionSites: []
   });
 
+  // Load a published SPD vector template into the workbench: sequence + name +
+  // topology + features. SPD coordinates are 1-based inclusive (publishVector
+  // shifted them on the way up), so undo that shift on the way down.
+  function applySpdVectorTemplate(t: LoadedVectorTemplate) {
+    const seq = (t.sequence || '').replace(/[^ACGTN]/g, '').toUpperCase();
+    if (!seq) { pushToast('error', m.vtpSpdLoadTitle(), m.vtpSpdNoSequence()); return; }
+    dnaSeq = seq;
+    plasmidName = t.detail.name || 'SPD vector';
+    activeTab = t.detail.topology === 'linear' ? 'linear' : 'circular';
+    const src = (t.detail.features ?? []).filter(f => typeof f.id === 'string' && f.id);
+    if (src.length) {
+      geneFeatures = src.map((f, index) => ({
+        id: index + 1,
+        name: f.id,
+        start: Math.max(0, Number(f.start ?? 1) - 1),
+        end: Math.min(seq.length, Number(f.end ?? f.start ?? 1) - 1),
+        type: f.type || 'feature',
+        color: getEnzymeColor(f.id),
+        forward: f.strand !== -1
+      }));
+    }
+    vectorTemplate = {
+      ...vectorTemplate,
+      name: plasmidName, sequence: seq,
+      topology: t.detail.topology === 'linear' ? 'linear' : 'circular',
+      // VectorFeature requires numeric start/end; SPD features may omit them.
+      features: (t.detail.features ?? []).map(f => ({
+        id: f.id, type: f.type ?? 'feature',
+        start: Number(f.start ?? 1), end: Number(f.end ?? f.start ?? 1),
+        ...(f.strand === -1 || f.strand === 1 ? { strand: f.strand } : {}),
+        ...(f.note !== undefined ? { note: String(f.note) } : {}),
+      })),
+      insertionSites: t.detail.insertionSites ?? []
+    };
+    pushToast('success', m.vtpSpdLoadTitle(), m.vtpSpdLoaded({ v1: plasmidName, v2: String(seq.length) }));
+    pushLog(m.vtpSpdLogLoaded({ v1: plasmidName, v2: String(seq.length) }));
+  }
+
   function applyAssemblyResult(result: AssemblyResult) {
     const sequence = typeof result?.sequence === 'string' ? result.sequence.toUpperCase() : '';
     if (!sequence) return;
@@ -1395,6 +1437,94 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   let annBusy = $state(false);
   $effect(() => { try { localStorage.setItem('spice_use_unevec', useUnevec ? '1' : '0'); } catch { /* ignore */ } });
   $effect(() => { try { localStorage.setItem('spice_ann_algo', annAlgorithm); } catch { /* ignore */ } });
+
+  // Restriction-enzyme library source. 'neb' = the classic REBASE pipeline
+  // (rebase.neb.com bionet.txt via sync_rebase_db, bundled fallback);
+  // 'spd' = SPD's curated catalog (GET /restriction-enzymes/export, public —
+  // no token needed to pull). Whichever is active feeds `enzymeDatabase`;
+  // the tg-oss built-in definitions still win per-enzyme in resolveEnzymeFor.
+  let enzymeSource = $state<string>((typeof localStorage !== 'undefined' && localStorage.getItem('spice_enzyme_source')) || 'neb');
+  let enzymeSyncing = $state(false);
+  let enzymeSeeding = $state(false);
+  let enzymeSeedProgress = $state('');
+  let enzymeApplied = $state<{ source: string; count: number; at: string } | null>(null);
+  $effect(() => { try { localStorage.setItem('spice_enzyme_source', enzymeSource); } catch { /* ignore */ } });
+
+  function applyEnzymeRows(rows: { name: string; motif: string; cutIndex: number; isBlunt?: boolean }[], source: string) {
+    const db: Record<string, { seq: string; cut: number; color: string; isBlunt?: boolean }> = {};
+    for (const item of rows) {
+      if (item && item.name && item.motif) {
+        db[item.name] = { seq: item.motif, cut: Number(item.cutIndex) || 0, color: getEnzymeColor(item.name), isBlunt: !!item.isBlunt };
+      }
+    }
+    enzymeDatabase = db;
+    enzymeApplied = { source, count: Object.keys(db).length, at: new Date().toLocaleTimeString() };
+  }
+
+  function readEnzymeCache(source: string): { name: string; motif: string; cutIndex: number }[] | null {
+    try {
+      if (source === 'spd') {
+        const raw = localStorage.getItem('spice_enzyme_spd_cache');
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed?.rows) && parsed.rows.length ? parsed.rows : null;
+      }
+      const raw = localStorage.getItem('spice_rebase_db');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  async function syncEnzymeLibrary(source: string = enzymeSource, quiet = false) {
+    if (enzymeSyncing) return;
+    enzymeSyncing = true;
+    try {
+      if (source === 'spd') {
+        const exp = await configureSpdClient().exportRestrictionEnzymes();
+        const rows = exportItemsToRows(exp.enzymes || []);
+        if (rows.length) {
+          try { localStorage.setItem('spice_enzyme_spd_cache', JSON.stringify({ rows, exportedAt: exp.exportedAt })); } catch { /* ignore */ }
+          applyEnzymeRows(rows, 'spd');
+          if (!quiet) pushToast('info', m.viewEnzymeSyncedTitle(), m.viewEnzymeSyncedSpd({ count: String(rows.length) }));
+          pushLog(m.logEnzymeSyncSpd({ count: String(rows.length) }));
+          return;
+        }
+        // An unseeded production SPD catalog is not a failure — fall back to
+        // REBASE honestly and say so.
+        if (!quiet) pushToast('info', m.viewEnzymeSyncedTitle(), m.viewEnzymeSpdEmpty());
+        pushLog(m.logEnzymeSyncSpdEmpty());
+      }
+      const res = await backend.syncRebaseDb();
+      const rows = Array.isArray(res.data) ? res.data : [];
+      if (typeof localStorage !== 'undefined') { try { localStorage.setItem('spice_rebase_db', JSON.stringify(rows)); } catch { /* ignore */ } }
+      applyEnzymeRows(rows.map(r => ({ name: r.name, motif: r.motif, cutIndex: r.cutIndex, isBlunt: r.isBlunt })), 'neb');
+      if (!quiet) pushToast('info', m.viewEnzymeSyncedTitle(), m.viewEnzymeSyncedNeb({ count: String(rows.length) }));
+      pushLog(m.logRebaseLoadSuccess({ count: rows.length }));
+    } catch {
+      const cached = readEnzymeCache(source);
+      if (cached) applyEnzymeRows(cached, source + '·cache');
+      pushLog(m.logRebaseLoadFail());
+      if (!quiet) pushToast('info', m.viewEnzymeSyncedTitle(), m.viewEnzymeSyncedCached());
+    } finally {
+      enzymeSyncing = false;
+    }
+  }
+
+  // One-time (idempotent — SPD dedups by name) upload of the bundled cutters
+  // to SPD's catalog, for a fresh/empty production DB.
+  async function seedEnzymesToSpdNow() {
+    if (!spdToken()) { pushToast('error', m.viewEnzymeSeedTitle(), m.spdNeedToken()); return; }
+    if (enzymeSeeding) return;
+    enzymeSeeding = true; enzymeSeedProgress = '';
+    try {
+      const r = await seedBuiltInEnzymes((done, total) => { enzymeSeedProgress = `${done}/${total}`; });
+      pushToast('success', m.viewEnzymeSeedTitle(), m.viewEnzymeSeedResult({ v1: String(r.created), v2: String(r.existing), v3: String(r.failed), v4: String(r.skipped) }));
+      pushLog(m.logEnzymeSeeded({ v1: String(r.created), v2: String(r.skipped) }));
+      if (enzymeSource === 'spd') void syncEnzymeLibrary('spd');
+    } catch (e) {
+      pushToast('error', m.viewEnzymeSeedTitle(), e instanceof Error ? e.message : String(e));
+    } finally {
+      enzymeSeeding = false; enzymeSeedProgress = '';
+    }
+  }
 
   // SnapGene parity: Unique cutters filter
   let showUniqueCutters = $state(false);
@@ -1702,20 +1832,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       }
     }
 
-    backend.syncRebaseDb().then(res => {
-      const db: Record<string, { seq: string; cut: number; color: string }> = {};
-      res.data.forEach(item => {
-        db[item.name] = {
-          seq: item.motif,
-          cut: item.cutIndex,
-          color: getEnzymeColor(item.name)
-        };
-      });
-      enzymeDatabase = db;
-      pushLog(m.logRebaseLoadSuccess({ count: res.data.length }));
-    }).catch(err => {
-      pushLog(m.logRebaseLoadFail());
-    });
+    void syncEnzymeLibrary(enzymeSource, true);
 
     backend.syncUnevecDb().then(res => {
       unevecDb = res.data || [];
@@ -1759,7 +1876,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   }
 
   const getInitialEnzymeDb = () => {
-    const db: Record<string, { seq: string; cut: number; color: string }> = {};
+    const db: Record<string, { seq: string; cut: number; color: string; isBlunt?: boolean }> = {};
 
     // 1. Try to load from persistent synced REBASE database in localStorage
     if (typeof localStorage !== 'undefined') {
@@ -1773,7 +1890,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
                 db[enz.name] = {
                   seq: enz.motif.replace(/\^/g, '').toUpperCase(),
                   cut: enz.cutIndex,
-                  color: getEnzymeColor(enz.name)
+                  color: getEnzymeColor(enz.name),
+                  isBlunt: !!(enz as { isBlunt?: boolean }).isBlunt
                 };
               }
             });
@@ -1811,7 +1929,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     return db;
   };
 
-  let enzymeDatabase = $state<Record<string, { seq: string; cut: number; color: string }>>(getInitialEnzymeDb());
+  let enzymeDatabase = $state<Record<string, { seq: string; cut: number; color: string; isBlunt?: boolean }>>(getInitialEnzymeDb());
 
   // Annotations — ported OVE demo features (pJ5_00001)
   let geneFeatures = $state<{ id: number; name: string; start: number; end: number; type: string; color: string; forward?: boolean }[]>(oveDemo.features);
@@ -1822,7 +1940,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     const fromDb = getEnzymeByName(name);
     if (fromDb) return fromDb;
     const fb = enzymeDatabase[name];
-    if (fb) return enzymeFromSite(name, fb.seq, fb.cut);
+    if (fb) return enzymeFromSite(name, fb.seq, fb.cut, !!fb.isBlunt);
     return undefined;
   }
 
@@ -3757,7 +3875,27 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         <strong>{m.menuCloneVectorTemplate()}</strong>
         <button class="pix-btn-reset" type="button" onclick={() => showVectorTemplatePanel = false} aria-label={m.close()} style="color:var(--pix-red);">[X]</button>
       </div>
-      <VectorTemplatePanel template={vectorTemplate} cassette={expressionCassette} compact onChange={(next) => expressionCassette = next} onAssembled={(result) => applyAssemblyResult(result)} />
+      <VectorTemplatePanel
+        template={vectorTemplate}
+        cassette={expressionCassette}
+        compact
+        onChange={(next) => expressionCassette = next}
+        onAssembled={(result) => applyAssemblyResult(result)}
+        pushLog={pushLog}
+        pushToast={pushToast}
+        getWorkspace={() => ({
+          name: plasmidName || 'unnamed plasmid',
+          sequence: dnaSeq,
+          circular: !linear,
+          features: geneFeatures.map(f => ({ name: f.name, start: f.start, end: f.end, type: f.type, forward: f.forward })),
+          // one insertion site per selected enzyme, at its first cut position
+          insertionSites: selectedEnzymes.flatMap(n => {
+            const s = restrictionSites.find(r => r.name === n);
+            return s ? [{ name: n, position: s.pos }] : [];
+          })
+        })}
+        onLoadTemplate={(t) => applySpdVectorTemplate(t)}
+      />
     </div>
   {/if}
 
@@ -4319,6 +4457,20 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
           <button class="pix-btn" onclick={resyncUnevec} disabled={annDbSyncing} style="padding: 2px 8px; font-size: 9px;">{m.resyncBtn()}</button>
         </div>
         <button class="pix-btn ok" onclick={runAutoAnnotate} disabled={annBusy} style="padding: 3px; font-size: 10px;">{annBusy ? m.annotatingEllipsis() : m.runAutoAnnotateBtn()}</button>
+        <div style="border-top: 1px dashed var(--pix-border); margin: 4px 0;"></div>
+        <div class="pix-dim" style="font-weight: bold;">{m.viewEnzymeDb()}</div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <span class="pix-dim" style="width: 64px;">{m.viewEnzymeSource()}:</span>
+          <select class="pix-select" bind:value={enzymeSource} onchange={() => void syncEnzymeLibrary(enzymeSource)} style="flex: 1; padding: 2px 4px; font-size: 10px; height: 24px;">
+            <option value="neb">{m.viewEnzymeSourceNeb()}</option>
+            <option value="spd">{m.viewEnzymeSourceSpd()}</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center; justify-content: space-between;">
+          <span class="pix-dim" style="font-size: 9px;">{enzymeApplied ? m.viewEnzymeStatus({ v1: enzymeApplied.source, v2: String(enzymeApplied.count), v3: enzymeApplied.at }) : m.viewEnzymeStatusNone()}</span>
+          <button class="pix-btn" onclick={() => void syncEnzymeLibrary()} disabled={enzymeSyncing} style="padding: 2px 8px; font-size: 9px;">{enzymeSyncing ? m.syncingSuffix() : m.viewEnzymeSync()}</button>
+        </div>
+        <button class="pix-btn" onclick={seedEnzymesToSpdNow} disabled={enzymeSeeding} title={m.viewEnzymeSeedHint()} style="padding: 2px 8px; font-size: 9px;">{enzymeSeeding && enzymeSeedProgress ? m.viewEnzymeSeedProgress({ v1: enzymeSeedProgress }) : m.viewEnzymeSeedBtn()}</button>
       </div>
     </div>
   {/if}

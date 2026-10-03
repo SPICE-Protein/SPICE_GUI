@@ -59,6 +59,54 @@ pub async fn spd_request(
     Ok(serde_json::json!({ "status": res.0, "body": res.1 }))
 }
 
+/// PUT raw bytes to an SPD upload grant URL (`PUT /uploads/{token}`).
+/// Body arrives base64-encoded from the webview; reqwest sets Content-Length
+/// from the decoded bytes, which the server compares against the grant.
+/// Grant URLs are absolute (built server-side), so this takes the full URL.
+#[tauri::command]
+pub async fn spd_put_bytes(
+    url: String,
+    headers: HashMap<String, String>,
+    body_base64: String,
+) -> Result<serde_json::Value, String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("only http(s) URLs are allowed".into());
+    }
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(body_base64)
+        .map_err(|e| format!("decode body: {e}"))?;
+    let res = tauri::async_runtime::spawn_blocking(move || -> Result<(u16, String), String> {
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("SPICE-GUI")
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("reqwest client: {e}"))?;
+        let mut req = client.put(&url).body(bytes);
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let mut resp = req.send().map_err(|e| format!("request failed: {e}"))?;
+        let status = resp.status().as_u16();
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 65536];
+        loop {
+            let n = resp.read(&mut chunk).map_err(|e| format!("read body: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if buf.len() > 4 * 1024 * 1024 {
+                return Err("upload receipt exceeds 4 MiB".into());
+            }
+        }
+        Ok((status, String::from_utf8_lossy(&buf).into_owned()))
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))??;
+    Ok(serde_json::json!({ "status": res.0, "body": res.1 }))
+}
+
 /// Stream-SHA-256 the active ONNX checkpoint. SPD's model/fold schema demands
 /// a `sha256:<64 hex>` checkpoint identity; hashing in Rust avoids shipping a
 /// 100 MB+ model through the IPC boundary to the webview.

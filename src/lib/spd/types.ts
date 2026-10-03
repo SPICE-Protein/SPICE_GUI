@@ -68,4 +68,54 @@ export interface SpdGraphFold { id: string; sequenceId?: string; environmentId?:
 export interface SpdGraphResultNode { id?: string; sha256?: string; length?: number; folds?: SpdGraphFold[]; [key: string]: unknown }
 export interface SpdGraphData { results: SpdGraphResultNode[]; tier: string; budgetMax: number; budgetUsed: number }
 
+/** ───── Vector templates (design objects, POST /vectors) ─────
+ *  The vector body is a structured record: the server rejects unknown
+ *  top-level keys, so every field below must match the §13 model verbatim. */
+export interface SpdVectorFeature { id: string; type: string; start?: number; end?: number; strand?: number; note?: string; [key: string]: unknown }
+export interface SpdVectorInsertionSite { id: string; position?: number; [key: string]: unknown }
+export interface SpdVectorDesign {
+  name: string;
+  topology?: 'circular' | 'linear';
+  format?: string;            // defaults server-side to SPICE_VECTOR
+  schemaVersion?: string;
+  coordinateSystem?: string;  // defaults to 1-based-inclusive
+  sequenceArtifactId?: string;
+  features?: SpdVectorFeature[];
+  insertionSites?: SpdVectorInsertionSite[];
+  validationRules?: Record<string, unknown>;
+  provenance?: Record<string, unknown>; // license lives here: {license:'CC-BY-4.0'|'CC0-1.0'}
+}
+/** GET /vectors rows are the short projection; GET /vectors/{id} the detail. */
+export interface SpdVectorSummary { id: string; name: string; format?: string; topology?: string; provenance?: Record<string, unknown>; [key: string]: unknown }
+export interface SpdVectorDetail extends SpdVectorSummary {
+  schemaVersion?: string; sequenceArtifactId?: string; coordinateSystem?: string;
+  features?: SpdVectorFeature[]; insertionSites?: SpdVectorInsertionSite[];
+  validationRules?: unknown; suppliers?: unknown[];
+}
+/** POST /vectors/{id}/validate — checks are human-readable strings. */
+export interface SpdVectorValidation { valid: boolean; checks: string[]; warnings: string[] }
+/** POST /vectors receipt is bare: {id, created, data}. */
+export interface SpdVectorReceipt { id: string; created: boolean; data: SpdVectorDesign }
+
+/** ───── Restriction enzyme catalog (SPD-synced library source) ─────
+ *  GET /restriction-enzymes/export is the public GUI-sync bundle:
+ *  {exportedAt, count, enzymes:[{name, recognitionSite, cutPosition}]}.
+ *  cutPosition is the site with a single ^ or / marker, e.g. "G^AATTC". */
+export interface SpdEnzymeExportItem { name: string; recognitionSite: string; cutPosition: string }
+export interface SpdEnzymeExport { exportedAt: number; count: number; enzymes: SpdEnzymeExportItem[] }
+/** POST /restriction-enzymes body. enzymeType enum: type_ii|type_iis|type_iii|other. */
+export interface SpdEnzymeCreateInput { name: string; recognitionSite: string; cutPosition: string; enzymeType?: string; metadata?: Record<string, unknown> }
+
+/** ───── Artifact upload pipeline (vector sequence bytes) ─────
+ *  preflight → PUT grant.uploadUrl (raw bytes, Content-Length must match)
+ *  → POST /artifacts (snake_case body) → POST /artifacts/{id}/complete.
+ *  object_key MUST start with `users/<userId>/`. */
+export interface SpdUploadGrant { uploadUrl: string; objectKey: string; token: string; expiresIn: number; method: string }
+export interface SpdArtifactInput {
+  object_key: string; kind: string; media_type: string; encoding?: string | null;
+  shape?: unknown; byte_length: number; sha256: string; license?: string;
+}
+/** POST /artifacts receipts are bare; identical bytes owned by me return created:false. */
+export interface SpdArtifactReceipt { artifactId: string; created: boolean; status?: string; completedAt?: number }
+
 export interface SpdClientOptions { baseUrl?: string; token?: string }
