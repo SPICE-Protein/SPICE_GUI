@@ -2132,7 +2132,7 @@
   "propReferencesPlaceholder": "関連する出版物、著者、年、または PubMed インデックス記事情報を入力...",
   "propEditDnaTitle": "バックボーン核酸配列を編集 (DNA Sequence)",
   "propPlasmidNameLabel": "プラスミドベクター名:",
-  "propDropToLoad": "離してプラスミドを読み込み (.spiceg / .txt)",
+  "propDropToLoad": "離して質粒/配列を読み込み (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "長さ (Length):",
   "propTopologyLabel": "トポロジー:",
   "propTopologyLinearText": "線形 Linear",

@@ -1690,7 +1690,9 @@ Variant_M5,I32L + L45M + L50M`);
         
         <Select {...ui} options={EXAMPLE_SEQS.map(e => ({ value: e.id, label: e.label }))} bind:value={exampleId} />
         
-        <div class="pdb-dropzone" role="region" aria-label={m.dropzonePdb()}>
+        <!-- Plain sequence-paste area: there is no drop handler here (structure
+             import lives in FILE > Open), so no dropzone role/label. -->
+        <div class="pdb-dropzone">
           <Textarea {...ui} placeholder={m.placeholderSeq()} rows={6} bind:value={seq} />
         </div>
 

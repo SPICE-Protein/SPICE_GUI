@@ -2132,7 +2132,7 @@
   "propReferencesPlaceholder": "Ange relaterade publikationer, författare, år eller PubMed-indexerad artikelinformation...",
   "propEditDnaTitle": "Redigera rygggradssekvens (DNA Sequence)",
   "propPlasmidNameLabel": "Plasmid/vector-namn:",
-  "propDropToLoad": "Släpp för att läsa in plasmid (.spiceg / .txt)",
+  "propDropToLoad": "Släpp för att ladda plasmid/sekvens (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "Längd:",
   "propTopologyLabel": "Topologi:",
   "propTopologyLinearText": "Linjär",

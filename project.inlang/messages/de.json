@@ -2132,7 +2132,7 @@
   "propReferencesPlaceholder": "Verwandte Publikationen, Autoren, Jahrgänge oder PubMed-indexierte Artikelinformationen eingeben...",
   "propEditDnaTitle": "Rückgrat-Nukleotidsequenz bearbeiten (DNA Sequence)",
   "propPlasmidNameLabel": "Plasmid-/Vektorname:",
-  "propDropToLoad": "Loslassen, um Plasmid zu laden (.spiceg / .txt)",
+  "propDropToLoad": "Ablegen zum Laden von Plasmid/Sequenz (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "Länge:",
   "propTopologyLabel": "Topologie:",
   "propTopologyLinearText": "Linear",

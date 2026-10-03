@@ -2132,7 +2132,7 @@
   "propReferencesPlaceholder": "관련 출판물, 저자, 연도 또는 PubMed 색인 기사 정보를 입력하세요...",
   "propEditDnaTitle": "백본 뉴클레오타이드 서열 편집 (DNA Sequence)",
   "propPlasmidNameLabel": "플라스미드 벡터 이름:",
-  "propDropToLoad": "놓아서 플라스미드 불러오기 (.spiceg / .txt)",
+  "propDropToLoad": "놓아서 플라스미드/서열 로드 (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "길이 (Length):",
   "propTopologyLabel": "위상:",
   "propTopologyLinearText": "선형 Linear",

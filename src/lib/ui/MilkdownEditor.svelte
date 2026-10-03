@@ -265,6 +265,34 @@
     min-height: 180px;
   }
 
+  /* The frame theme pads ProseMirror with 60px/120px book margins and big
+     heading spacing — far too much for a panel-width ELN/journal. Compress
+     so the actual content gets the visible area. */
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror) {
+    padding: 8px 12px !important;
+  }
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror h1) {
+    font-size: 1.5em !important;
+    margin: 14px 0 6px !important;
+  }
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror h2) {
+    font-size: 1.3em !important;
+    margin: 12px 0 5px !important;
+  }
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror h3) {
+    font-size: 1.15em !important;
+    margin: 10px 0 4px !important;
+  }
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror h4),
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror h5),
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror h6) {
+    font-size: 1.05em !important;
+    margin: 8px 0 4px !important;
+  }
+  :global(.milkdown-crepe-editor .milkdown .ProseMirror p) {
+    margin: 5px 0 !important;
+  }
+
   :global(.milkdown-crepe-editor .crepe-block-handle) {
     background: #11141d !important;
     border: 1px solid var(--pix-border) !important;

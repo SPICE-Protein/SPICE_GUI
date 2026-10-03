@@ -2236,7 +2236,7 @@
   "propReferencesPlaceholder": "Enter related publications, authors, years or PubMed-indexed article info...",
   "propEditDnaTitle": "Edit backbone nucleotide sequence (DNA Sequence)",
   "propPlasmidNameLabel": "Plasmid/vector name:",
-  "propDropToLoad": "Release to load plasmid (.spiceg / .txt)",
+  "propDropToLoad": "Drop to load plasmid/sequence (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "Length:",
   "propTopologyLabel": "Topology:",
   "propTopologyLinearText": "Linear",

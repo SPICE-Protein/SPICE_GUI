@@ -2236,7 +2236,7 @@
   "propReferencesPlaceholder": "输入相关出版物、作者、年份或 PubMed 索引文章信息...",
   "propEditDnaTitle": "编辑主链核苷酸序列 (DNA Sequence)",
   "propPlasmidNameLabel": "质粒载体名:",
-  "propDropToLoad": "释放加载质粒 (.spiceg / .txt)",
+  "propDropToLoad": "释放加载质粒/序列文件 (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "长度 (Length):",
   "propTopologyLabel": "拓扑:",
   "propTopologyLinearText": "线性 Linear",

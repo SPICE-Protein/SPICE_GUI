@@ -2132,7 +2132,7 @@
   "propReferencesPlaceholder": "Voer gerelateerde publicaties, auteurs, jaren of PubMed-geïnformerde artikelgegevens in...",
   "propEditDnaTitle": "Ruggraat-nucleotidesequentie bewerken (DNA Sequence)",
   "propPlasmidNameLabel": "Plasmide/vector-naam:",
-  "propDropToLoad": "Loslaten om plasmide te laden (.spiceg / .txt)",
+  "propDropToLoad": "Neerzetten om plasmide/sequentie te laden (.spiceg/.dna/GenBank/FASTA)",
   "propLengthLabel": "Lengte:",
   "propTopologyLabel": "Topologie:",
   "propTopologyLinearText": "Lineair",
