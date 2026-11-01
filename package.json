@@ -10,9 +10,9 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
-    "predev": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/patch-android-landscape.mjs",
-    "prebuild": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/patch-android-landscape.mjs"
+    "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/clean-inlang-gitignore.mjs",
+    "predev": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/clean-inlang-gitignore.mjs && node scripts/patch-android-landscape.mjs",
+    "prebuild": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/clean-inlang-gitignore.mjs && node scripts/patch-android-landscape.mjs"
   },
   "license": "Apache-2.0",
   "dependencies": {

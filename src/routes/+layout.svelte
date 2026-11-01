@@ -7,7 +7,7 @@
   import * as m from '$lib/paraglide/messages.js';
   import { currentLocale, toggleLang } from '$lib/i18n.svelte.ts';
   import { initMultistyleUI, Card, Divider, Button, ProgressBar, Toggle } from 'svelte-multistyle-ui';
-  import { Settings, X, RefreshCw, RotateCcw, FlaskConical, Dna, Sparkles, Home, Folder } from 'lucide-svelte';
+  import { Settings, X, RefreshCw, RotateCcw, FlaskConical, Dna, Sparkles, Home, Folder, Wrench } from 'lucide-svelte';
   import { aiState } from '$lib/ui/aiState.svelte.ts';
   import AiCopilot from '$lib/ui/AiCopilot.svelte';
   import 'svelte-multistyle-ui/theme.css';
@@ -68,9 +68,11 @@
         ? 'protein'
         : $page.url.pathname === '/project'
           ? 'project'
-          : $page.url.pathname === '/'
-            ? 'welcome'
-            : 'settings'
+          : $page.url.pathname.startsWith('/tools')
+            ? 'tools'
+            : $page.url.pathname === '/'
+              ? 'welcome'
+              : 'settings'
   );
 </script>
 
@@ -129,6 +131,13 @@
         onclick={() => goto('/project')}
       >
         <Folder size={12} /> {m.tabProject()}
+      </button>
+      <button
+        class="pix-btn-reset {pageId === 'tools' ? 'active-ws' : ''}"
+        style="padding: 4px 16px; font-weight: bold; border-color: {pageId === 'tools' ? 'var(--pix-accent-2)' : 'var(--pix-border)'}; background: {pageId === 'tools' ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {pageId === 'tools' ? 'var(--pix-accent-2)' : 'var(--pix-fg-dim)'}; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+        onclick={() => goto('/tools')}
+      >
+        <Wrench size={12} /> {m.tabTools()}
       </button>
 
     </div>

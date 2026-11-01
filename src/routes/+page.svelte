@@ -12,7 +12,8 @@
     Settings,
     Atom,
     ChevronRight,
-    Folder
+    Folder,
+    Wrench
   } from 'lucide-svelte';
 
   // Track system or model status on welcome page
@@ -132,6 +133,28 @@
 
       <div class="action-btn-green" style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px dashed var(--pix-border); font-size: 11px; font-weight: bold; color: var(--pix-green);">
         <span>{m.welcomeOpenHub()}</span>
+        <ChevronRight size={14} />
+      </div>
+    </div>
+
+    <!-- Tools Hub Card -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="launch-card pix-panel" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/tools')}>
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="card-icon" style="background: rgba(226, 180, 72, 0.08); border: 2px solid var(--pix-accent-2); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-accent-2);">
+          <Wrench size={22} />
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 15px; color: var(--pix-accent-2); font-weight: bold;">{m.tabTools()}</h3>
+          <p style="margin: 8px 0 0 0; font-size: 11.5px; color: var(--pix-fg-dim); line-height: 1.6;">
+            {m.welcomeOpenTools()}
+          </p>
+        </div>
+      </div>
+
+      <div class="action-btn" style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px dashed var(--pix-border); font-size: 11px; font-weight: bold; color: var(--pix-accent-2);">
+        <span>{m.welcomeLaunchWorkspace()}</span>
         <ChevronRight size={14} />
       </div>
     </div>
