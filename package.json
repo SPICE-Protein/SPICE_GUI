@@ -24,7 +24,9 @@
     "@tauri-apps/plugin-opener": "^2",
     "lucide-svelte": "^1.0.1",
     "molstar": "^5.11.0",
-    "svelte-multistyle-ui": "0.0.14-alpha"
+    "pptxgenjs": "^4.0.1",
+    "svelte-multistyle-ui": "0.0.14-alpha",
+    "utif2": "^4.1.0"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.23.2",
