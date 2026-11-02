@@ -15,7 +15,9 @@
   import { backend } from '$lib/backend/api';
   import { projectStore, MAX_PROJECT_FILE_BYTES } from '$lib/project/store.svelte.ts';
   import { hasSlides } from '$lib/project/slides';
-  import type { ProjectFileEntry } from '$lib/project/types';
+  import type { ProjectDocKind, ProjectFileEntry, ToolDocKind } from '$lib/project/types';
+  import { TOOL_DOC_KINDS } from '$lib/project/types';
+  import { toolRoute } from '$lib/tools/shared/projectKinds';
   import Toaster from '$lib/ui/Toaster.svelte';
   import MilkdownEditor from '$lib/ui/MilkdownEditor.svelte';
   import PresenterView from '$lib/project/PresenterView.svelte';
@@ -41,7 +43,15 @@
     Paperclip,
     Eye,
     File as FileIcon,
-    Pencil
+    Pencil,
+    ScanLine,
+    Activity,
+    BarChart3,
+    Grid3X3,
+    Microscope,
+    ImagePlus,
+    GitBranch,
+    ImageDown
   } from 'lucide-svelte';
 
   let openProjectFile = $state<HTMLInputElement | undefined>();
@@ -75,6 +85,24 @@
   const pj = $derived(projectStore.current);
   const pages = $derived(projectStore.activePages);
   const activePage = $derived(projectStore.activeJournalPage);
+  const toolKinds = TOOL_DOC_KINDS;
+  let toolCaptureKind = $state<ToolDocKind>('gel');
+
+  function toolTitle(kind: ToolDocKind): string {
+    switch (kind) {
+      case 'gel': return m.toolsGelTitle();
+      case 'blot': return m.toolsBlotTitle();
+      case 'qpcr': return m.toolsQpcrTitle();
+      case 'plate': return m.toolsPlateTitle();
+      case 'colony': return m.toolsColonyTitle();
+      case 'annotate': return m.toolsAnnotateTitle();
+      case 'tree': return m.toolsTreeTitle();
+    }
+  }
+
+  function toolKindOf(kind: ProjectDocKind): ToolDocKind | null {
+    return (TOOL_DOC_KINDS as readonly string[]).includes(kind) ? (kind as ToolDocKind) : null;
+  }
 
   onMount(() => {
     aiState.currentWorkspace = 'general';
@@ -185,19 +213,32 @@
     pushToast('info', m.projectClosedToast());
   }
 
-  function openDoc(docId: string, kind: 'gene' | 'protein') {
+  function openDoc(docId: string, kind: ProjectDocKind) {
     if (kind === 'gene') {
       projectStore.openDocInGenePage(docId);
       goto('/gene');
-    } else {
+    } else if (kind === 'protein') {
       projectStore.openDocInProteinPage(docId);
       goto('/protein');
+    } else {
+      projectStore.openDocInToolPage(docId, kind);
+      goto(toolRoute(kind));
     }
   }
 
-  function captureFromWorkspace(kind: 'gene' | 'protein') {
+  function captureFromWorkspace(kind: ProjectDocKind) {
     projectStore.requestWorkspaceCapture(kind);
-    goto(kind === 'gene' ? '/gene' : '/protein');
+    if (kind === 'gene') goto('/gene');
+    else if (kind === 'protein') goto('/protein');
+    else goto(toolRoute(kind));
+  }
+
+  function insertDocPreview(docId: string) {
+    if (projectStore.insertDocPreviewIntoJournal(docId)) {
+      pushToast('success', m.projectDocInsertedToast());
+    } else {
+      pushToast('info', m.projectDocNoPreview());
+    }
   }
 
   async function exportDoc(docId: string) {
@@ -371,10 +412,28 @@
         {:else}
           <div class="ps-scroll">
             {#each pj.docs as doc (doc.id)}
-              <div class="res-row" class:res-active={projectStore.activeDocId === doc.id}>
-                <span class="res-chip {doc.kind === 'gene' ? 'chip-gene' : 'chip-protein'}">
-                  {#if doc.kind === 'gene'}<Dna size={10} />{:else}<FlaskConical size={10} />{/if}
-                </span>
+              <div class="res-row res-doc" class:res-active={projectStore.activeDocId === doc.id}>
+                {#if doc.preview}
+                  <img class="res-thumb" src={doc.preview} alt="" />
+                {:else}
+                  <span
+                    class="res-chip"
+                    class:chip-gene={doc.kind === 'gene'}
+                    class:chip-protein={doc.kind === 'protein'}
+                    class:chip-tool={toolKindOf(doc.kind) !== null}
+                  >
+                    {#if doc.kind === 'gene'}<Dna size={10} />
+                    {:else if doc.kind === 'protein'}<FlaskConical size={10} />
+                    {:else if doc.kind === 'gel'}<ScanLine size={10} />
+                    {:else if doc.kind === 'blot'}<Activity size={10} />
+                    {:else if doc.kind === 'qpcr'}<BarChart3 size={10} />
+                    {:else if doc.kind === 'plate'}<Grid3X3 size={10} />
+                    {:else if doc.kind === 'colony'}<Microscope size={10} />
+                    {:else if doc.kind === 'annotate'}<ImagePlus size={10} />
+                    {:else if doc.kind === 'tree'}<GitBranch size={10} />
+                    {/if}
+                  </span>
+                {/if}
                 {#if editingDocId === doc.id}
                   <input
                     class="res-rename"
@@ -384,12 +443,20 @@
                   />
                 {:else}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <span class="res-name" title="{doc.name} — {fmtTime(doc.updatedAt)}" ondblclick={() => startRenameDoc(doc.id, doc.name)}>
+                  <span
+                    class="res-name"
+                    title="{doc.name} — {doc.summary ?? ''} — {fmtTime(doc.updatedAt)}"
+                    ondblclick={() => startRenameDoc(doc.id, doc.name)}
+                  >
                     {doc.name}
+                    {#if doc.summary}<span class="res-summary pix-dim">{doc.summary}</span>{/if}
                   </span>
                 {/if}
                 <span class="res-actions">
                   <button class="ra-btn" title={m.projectDocOpenBtn()} onclick={() => openDoc(doc.id, doc.kind)}><ExternalLink size={11} /></button>
+                  {#if doc.preview}
+                    <button class="ra-btn" title={m.projectDocInsertJournal()} onclick={() => insertDocPreview(doc.id)}><ImageDown size={11} /></button>
+                  {/if}
                   <button class="ra-btn" title={m.projectRenameBtn()} onclick={() => startRenameDoc(doc.id, doc.name)}><Pencil size={11} /></button>
                   <button class="ra-btn" title={m.projectDocExportBtn()} onclick={() => exportDoc(doc.id)}><Download size={11} /></button>
                   <button class="ra-btn ra-danger" title={m.projectDocRemoveBtn()} onclick={() => (removeDocTarget = doc.id)}><Trash2 size={11} /></button>
@@ -405,6 +472,16 @@
             </button>
             <button class="ps-add" onclick={() => captureFromWorkspace('protein')}>
               <FlaskConical size={11} /> {m.projectDocAddProteinBtn()}
+            </button>
+          </div>
+          <div class="ps-foot ps-tool-foot">
+            <select class="ps-tool-select" bind:value={toolCaptureKind} aria-label={m.projectToolSelectLabel()}>
+              {#each toolKinds as kind (kind)}
+                <option value={kind}>{toolTitle(kind)}</option>
+              {/each}
+            </select>
+            <button class="ps-add" onclick={() => captureFromWorkspace(toolCaptureKind)}>
+              <ScanLine size={11} /> {m.projectToolCaptureBtn()}
             </button>
           </div>
         {/if}
@@ -733,6 +810,12 @@
     display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-align: left;
   }
   .ps-add:hover { border-color: var(--pix-cyan); color: var(--pix-cyan); }
+  .ps-tool-foot { flex-direction: row; align-items: stretch; }
+  .ps-tool-select {
+    flex: 1; min-width: 0; background: var(--pix-bg-3); border: 2px solid var(--pix-border);
+    color: var(--pix-fg); font-family: var(--pix-font); font-size: 10px; padding: 2px 4px;
+  }
+  .ps-tool-foot .ps-add { flex: 0 0 auto; width: auto; white-space: nowrap; }
 
   .res-row {
     display: flex; align-items: center; gap: 6px;
@@ -745,10 +828,19 @@
   }
   .chip-gene { color: var(--pix-cyan); border-color: var(--pix-cyan); }
   .chip-protein { color: var(--pix-purple); border-color: var(--pix-purple); }
+  .chip-tool { color: var(--pix-accent); border-color: var(--pix-accent); }
   .chip-proj { color: var(--pix-green); border-color: var(--pix-green); }
   .chip-file { color: var(--pix-accent-2); border-color: var(--pix-accent-2); }
+  .res-thumb {
+    width: 24px; height: 24px; flex: 0 0 24px; object-fit: cover;
+    border: 1px solid var(--pix-border-hi); background: #fff;
+  }
   .file-size { font-size: 8.5px; flex: 0 0 auto; }
-  .res-name { font-size: 11px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .res-name {
+    font-size: 11px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
+  }
+  .res-summary { font-size: 8px; font-weight: normal; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .res-rename { flex: 1; min-width: 0; }
   .res-actions { display: inline-flex; gap: 3px; flex: 0 0 auto; }
   .ra-btn {

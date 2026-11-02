@@ -8,6 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [sveltekit(), paraglideVitePlugin({ project: './project.inlang', outdir: './src/lib/paraglide' })],
 
+  // Batch workers use dynamic imports (UTIF), which requires ES module output.
+  worker: {
+    /** @type {'es'} */
+    format: 'es',
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

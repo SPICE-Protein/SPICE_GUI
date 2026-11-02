@@ -44,8 +44,8 @@ export function buildResultsCsv(
   lines.push(row(['mode', project.mode]));
   lines.push(
     row([
-      'referenceTarget',
-      ddct.reference?.label ?? '',
+      'referenceTargets',
+      ddct.references.map((reference) => reference.label).join(';'),
       'controlGroup',
       project.settings.controlGroup,
       'controlSample',
@@ -240,6 +240,19 @@ export function buildResultsCsv(
   lines.push(row(['target', 'controlMeanDCt']));
   for (const target of ddct.targets) {
     lines.push(row([target.label, num(ddct.controlMeanDCt[target.key], 4)]));
+  }
+
+  section('Reference QC');
+  lines.push(row(['sample', 'group', 'refCt', 'missingReferenceTargets']));
+  for (const matrixRow of ddct.matrix) {
+    lines.push(
+      row([
+        matrixRow.sample,
+        matrixRow.group,
+        num(matrixRow.refCt, 4),
+        matrixRow.referenceMissing.join(';'),
+      ]),
+    );
   }
 
   section('Standard curve fits');

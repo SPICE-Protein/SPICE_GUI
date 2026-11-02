@@ -4,6 +4,8 @@
 
 export type ColonyPolarity = 'auto' | 'dark' | 'bright';
 export type ColonySource = 'auto' | 'manual';
+export type ColonyColorMode = 'off' | 'blue-white';
+export type ColonyClass = 'blue' | 'white' | 'unclassified';
 
 export interface ColonyAdjust {
   grayscale: boolean;
@@ -36,6 +38,8 @@ export interface ColonyParams {
   minCircularity: number;
   splitTouching: boolean;
   polarity: ColonyPolarity;
+  /** Optional blue/white classification measured from the color image. */
+  colorMode: ColonyColorMode;
 }
 
 export interface ColonyMarker {
@@ -51,6 +55,17 @@ export interface ColonyMarker {
   circularity: number;
   included: boolean;
   source: ColonySource;
+  /** Mean channel values sampled from the original color image. */
+  meanR: number;
+  meanG: number;
+  meanB: number;
+  /** HSV hue in degrees, or -1 when no color information is available. */
+  hue: number;
+  /** HSV saturation 0..1. */
+  saturation: number;
+  colonyClass: ColonyClass;
+  /** True when the user overrode the automatic class. */
+  classManual: boolean;
 }
 
 export interface ColonyProject {
@@ -103,6 +118,7 @@ export function defaultParams(): ColonyParams {
     minCircularity: 0,
     splitTouching: true,
     polarity: 'auto',
+    colorMode: 'off',
   };
 }
 
@@ -157,7 +173,11 @@ export function isColonyProject(value: unknown): value is ColonyProject {
 /** Fill fields that may be missing from older or hand-edited snapshots. */
 export function normalizeProject(project: ColonyProject): ColonyProject {
   const base = emptyProject();
-  const params = { ...base.params, ...project.params };
+  const params = {
+    ...base.params,
+    ...project.params,
+    colorMode: project.params.colorMode === 'blue-white' ? 'blue-white' as const : 'off' as const,
+  };
   return {
     ...base,
     ...project,
@@ -170,6 +190,16 @@ export function normalizeProject(project: ColonyProject): ColonyProject {
       radius: Number.isFinite(marker.radius) ? marker.radius : Math.sqrt(Math.max(0, marker.area) / Math.PI),
       included: marker.included !== false,
       source: marker.source === 'manual' ? 'manual' : 'auto',
+      meanR: Number.isFinite(marker.meanR) ? marker.meanR : 0,
+      meanG: Number.isFinite(marker.meanG) ? marker.meanG : 0,
+      meanB: Number.isFinite(marker.meanB) ? marker.meanB : 0,
+      hue: Number.isFinite(marker.hue) ? marker.hue : -1,
+      saturation: Number.isFinite(marker.saturation) ? marker.saturation : 0,
+      colonyClass:
+        marker.colonyClass === 'blue' || marker.colonyClass === 'white'
+          ? marker.colonyClass
+          : 'unclassified',
+      classManual: marker.classManual === true,
     })),
   };
 }

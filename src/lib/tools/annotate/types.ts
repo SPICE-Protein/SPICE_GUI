@@ -45,6 +45,43 @@ export interface Calibration {
   pxPerUnit: number;
 }
 
+/** One channel of an RGB composite. Gain is a multiplier in the 0..2 range. */
+export interface ChannelSetting {
+  show: boolean;
+  gain: number;
+  /** Invert the channel after gain, for a negative LUT look. */
+  invert: boolean;
+}
+
+export interface ChannelMix {
+  r: ChannelSetting;
+  g: ChannelSetting;
+  b: ChannelSetting;
+}
+
+/** Display channels applied to every preview and export path. */
+export const DEFAULT_CHANNEL_MIX: ChannelMix = {
+  r: { show: true, gain: 1, invert: false },
+  g: { show: true, gain: 1, invert: false },
+  b: { show: true, gain: 1, invert: false },
+};
+
+export function createDefaultChannels(): ChannelMix {
+  return {
+    r: { ...DEFAULT_CHANNEL_MIX.r },
+    g: { ...DEFAULT_CHANNEL_MIX.g },
+    b: { ...DEFAULT_CHANNEL_MIX.b },
+  };
+}
+
+export function channelIsDefault(channel: ChannelSetting): boolean {
+  return channel.show && !channel.invert && Math.abs(channel.gain - 1) < 1e-6;
+}
+
+export function channelsAreDefault(mix: ChannelMix): boolean {
+  return channelIsDefault(mix.r) && channelIsDefault(mix.g) && channelIsDefault(mix.b);
+}
+
 export interface Panel {
   id: string;
   name: string;
@@ -61,6 +98,8 @@ export interface Panel {
   offsetY: number;
   brightness: number;
   contrast: number;
+  /** RGB channel compositing; missing values normalize to the visible default. */
+  channels: ChannelMix;
   calibration: Calibration | null;
 }
 
@@ -152,15 +191,37 @@ export interface PanelBarAnnotation extends AnnotationBase {
   showLabel: boolean;
 }
 
+/** Straight measurement line with an evenly sampled intensity profile. */
+export interface ProfileAnnotation extends AnnotationBase {
+  kind: 'profile';
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Number of evenly spaced samples along the segment. */
+  samples: number;
+  strokeWidthPt: number;
+}
+
 export type Annotation =
   | ArrowAnnotation
   | RectAnnotation
   | EllipseAnnotation
   | TextAnnotation
   | ScaleBarAnnotation
-  | PanelBarAnnotation;
+  | PanelBarAnnotation
+  | ProfileAnnotation;
 
-export type DrawTool = 'select' | 'pan' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'scalebar' | 'panelbar';
+export type DrawTool =
+  | 'select'
+  | 'pan'
+  | 'arrow'
+  | 'rect'
+  | 'ellipse'
+  | 'text'
+  | 'scalebar'
+  | 'panelbar'
+  | 'profile';
 export type ActiveTool = DrawTool | 'calibrate';
 
 export interface AnnotateProject {
@@ -331,6 +392,7 @@ export function emptyPanel(
     offsetY: 0,
     brightness: 100,
     contrast: 100,
+    channels: createDefaultChannels(),
     calibration: null,
   };
 }
@@ -356,6 +418,25 @@ function parseCalibration(value: unknown): Calibration | null {
   const pxPerUnit = num(value.pxPerUnit, 0);
   if (pxPerUnit <= 0) return null;
   return { unit: value.unit, pxPerUnit };
+}
+
+function parseChannel(value: unknown, fallback: ChannelSetting): ChannelSetting {
+  if (!isRecord(value)) return { ...fallback };
+  return {
+    show: value.show !== false,
+    gain: clamp(num(value.gain, fallback.gain), 0, 2),
+    invert: value.invert === true,
+  };
+}
+
+/** Missing channel blocks (older files) normalize to the fully visible mix. */
+function parseChannels(value: unknown): ChannelMix {
+  const src = isRecord(value) ? value : {};
+  return {
+    r: parseChannel(src.r, DEFAULT_CHANNEL_MIX.r),
+    g: parseChannel(src.g, DEFAULT_CHANNEL_MIX.g),
+    b: parseChannel(src.b, DEFAULT_CHANNEL_MIX.b),
+  };
 }
 
 function parsePanel(value: unknown): Panel | null {
@@ -388,6 +469,7 @@ function parsePanel(value: unknown): Panel | null {
     offsetY: clamp(num(value.offsetY, 0), -1, 1),
     brightness: clamp(num(value.brightness, 100), 10, 300),
     contrast: clamp(num(value.contrast, 100), 10, 300),
+    channels: parseChannels(value.channels),
     calibration: parseCalibration(value.calibration),
   };
 }
@@ -478,6 +560,18 @@ function parseAnnotation(value: unknown): Annotation | null {
         showLabel: value.showLabel !== false,
       };
     }
+    case 'profile':
+      return {
+        kind: 'profile',
+        id: value.id,
+        color,
+        x1: num(value.x1, 0),
+        y1: num(value.y1, 0),
+        x2: num(value.x2, 0),
+        y2: num(value.y2, 0),
+        samples: Math.round(clamp(num(value.samples, 192), 16, 1024)),
+        strokeWidthPt: clamp(num(value.strokeWidthPt, 1.2), 0.25, 12),
+      };
     default:
       return null;
   }

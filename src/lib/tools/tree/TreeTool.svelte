@@ -6,11 +6,30 @@
   import {
     TreePine, Search, ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut,
     RefreshCw, Upload, Download, Image as ImageIcon, FileText, Braces,
-    RotateCw, ListTree, Palette, Trash2, SlidersHorizontal, FileUp
+    RotateCw, ListTree, Palette, Trash2, SlidersHorizontal, FileUp,
+    GitCompare, Package
   } from 'lucide-svelte';
   import { m } from './i18n';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { backend } from '$lib/backend/api';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
+  import {
+    ensureProjectLoaded,
+    finishToolCapture,
+    takeToolHandoff,
+  } from '$lib/tools/shared/projectBridge';
+  import { svgPreview } from '$lib/tools/shared/preview';
+  import { saveReproBundle, type ReproFile } from '$lib/repro/bundle';
+  import { compareTrees, type TreeComparison } from './compare';
+  import { emptySupportSummary, supportSummary } from './support';
+  import {
+    normalizeTreePayload,
+    treeDocName,
+    treeMethods,
+    treeParameters,
+    treeSummary,
+  } from './projectDoc';
   import type {
     LayoutMode, PaletteId, TreeDoc, TreeNode, TreeMetadata, TreeProject, TreeSettings
   } from './types';
@@ -67,7 +86,14 @@
   let uploadInput = $state<HTMLInputElement | undefined>();
   let metaInput = $state<HTMLInputElement | undefined>();
   let projectInput = $state<HTMLInputElement | undefined>();
+  let compareInput = $state<HTMLInputElement | undefined>();
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let compareText = $state('');
+  let compareName = $state('');
+  let compareError = $state<string | null>(null);
+  let comparison = $state<TreeComparison | null>(null);
+  let comparing = $state(false);
+  let skipProjectCommit = false;
 
   // ------------------------------------------------------------ derived tree
 
@@ -173,6 +199,10 @@
 
   const totalNodes = $derived(treeIndex.byId.size);
   const totalLeaves = $derived(treeIndex.leaves.length);
+  const support = $derived(
+    doc ? supportSummary(doc.root, settings.supportThreshold, 10) : emptySupportSummary(10)
+  );
+  const supportBinMax = $derived(Math.max(1, ...support.bins.map((bin) => bin.total)));
 
   const errorSnippet = $derived.by(() => {
     if (!parseError) return null;
@@ -330,6 +360,8 @@
       focusGroup = null;
       parseError = null;
       autosaveAt = null;
+      comparison = null;
+      compareError = null;
       void fitView();
       if (notify) pushToast('success', m.treeLoadedToast(), sourceName ?? '');
       return true;
@@ -785,6 +817,18 @@
     };
   }
 
+  async function renderProjectPreview(): Promise<string | null> {
+    if (!layout) return null;
+    return svgPreview(exportMarkup, layout.width, layout.height);
+  }
+
+  async function captureToProject(): Promise<void> {
+    const project = buildProject();
+    if (!project) return;
+    const preview = await renderProjectPreview();
+    finishToolCapture('tree', treeDocName(project), project, preview ?? undefined, treeSummary(project));
+  }
+
   function applyProject(project: TreeProject): void {
     const root = deserializeTree(project.tree);
     doc = {
@@ -807,6 +851,8 @@
     parseError = null;
     metaError = null;
     autosaveAt = null;
+    comparison = null;
+    compareError = null;
     void fitView();
   }
 
@@ -829,6 +875,58 @@
     }
   }
 
+  function runComparison(text?: string): void {
+    if (!doc) {
+      compareError = m.treeCompareNeedTree();
+      comparison = null;
+      return;
+    }
+    const source = (text ?? compareText).trim();
+    if (!source) {
+      compareInput?.click();
+      return;
+    }
+    comparing = true;
+    try {
+      const parsed = parseNewick(source);
+      comparison = compareTrees(doc.root, parsed.root);
+      compareError = null;
+      if (comparison.identical) pushToast('success', m.treeCompareIdentical());
+    } catch {
+      comparison = null;
+      compareError = m.treeCompareInvalid();
+    } finally {
+      comparing = false;
+    }
+  }
+
+  async function onComparePicked(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      pushToast('error', m.treeFileTooLarge());
+      return;
+    }
+    try {
+      const text = await file.text();
+      compareText = text;
+      compareName = file.name;
+      runComparison(text);
+    } catch {
+      compareError = m.treeCompareInvalid();
+      comparison = null;
+    }
+  }
+
+  function clearComparison(): void {
+    compareText = '';
+    compareName = '';
+    compareError = null;
+    comparison = null;
+  }
+
   function forgetSession(): void {
     clearSession();
     doc = null;
@@ -845,6 +943,9 @@
     inputText = '';
     parseError = null;
     autosaveAt = null;
+    comparison = null;
+    compareError = null;
+    compareName = '';
     pushToast('info', m.treeSessionCleared());
   }
 
@@ -902,6 +1003,54 @@
     await saveExport(`${fileBase()}.tree.json`, serializeProject(project));
   }
 
+  async function exportBundle(): Promise<void> {
+    const project = buildProject();
+    if (!project || !layout || !doc) return;
+    try {
+      const png = await svgToPng(
+        exportMarkup,
+        layout.width,
+        layout.height,
+        300,
+        THEME_COLORS[settings.theme].background
+      );
+      const stem = fileBase();
+      const files: ReproFile[] = [
+        { name: `${stem}.svg`, mime: 'image/svg+xml', data: exportMarkup },
+        { name: `${stem}_300dpi.png`, mime: 'image/png', data: png.bytes },
+        { name: `${stem}_edited.nwk`, mime: 'text/plain', data: toNewick(doc.root, { collapsed }) },
+        { name: `${stem}_original.nwk`, mime: 'text/plain', data: doc.originalNewick },
+      ];
+      const result = await saveReproBundle({
+        tool: 'tree',
+        title: treeDocName(project),
+        files,
+        parameters: {
+          ...treeParameters(project),
+          comparison: comparison
+            ? {
+                rf: comparison.rf,
+                maxRf: comparison.maxRf,
+                normalizedRf: Number(comparison.normalizedRf.toFixed(4)),
+                sharedSplits: comparison.sharedSplits,
+                uniqueCurrent: comparison.uniqueA,
+                uniqueOther: comparison.uniqueB,
+                sharedLeaves: comparison.sharedLeaves.length,
+                onlyCurrentLeaves: comparison.leavesOnlyA,
+                onlyOtherLeaves: comparison.leavesOnlyB,
+              }
+            : null,
+        },
+        methods: treeMethods(project),
+        project,
+      });
+      if (result.ok) pushToast('success', m.treeExportOkToast({ name: result.path ?? result.fileName }));
+      else if (!result.canceled && result.error) pushToast('error', m.treeBundleFailed(), result.error);
+    } catch (error) {
+      pushToast('error', m.treeBundleFailed(), String((error as Error)?.message ?? error));
+    }
+  }
+
   // --------------------------------------------------------------- effects
 
   $effect(() => {
@@ -927,15 +1076,51 @@
     return () => clearTimeout(saveTimer);
   });
 
-  onMount(() => {
-    const session = loadSession();
-    if (session) {
-      applyProject(session);
-      pushToast('info', m.treeAutosaveRestored());
-    } else if (hasSession()) {
-      pushToast('warn', m.treeRestoreFailedToast());
+  // Mirror the live editor into the open project document.
+  $effect(() => {
+    if (!ready) return;
+    const project = buildProject();
+    if (!project) return;
+    if (projectStore.activeDocKind !== 'tree') return;
+    if (skipProjectCommit) {
+      skipProjectCommit = false;
+      return;
     }
+    projectStore.commitDoc('tree', project);
+  });
+
+  onMount(() => {
+    ensureProjectLoaded();
+    const handoff = takeToolHandoff('tree');
+    let captureRequested = false;
+    if (handoff?.type === 'open') {
+      const opened = normalizeTreePayload(handoff.payload);
+      if (opened) {
+        // Opening a project document must not be overwritten by the local
+        // session, so the first write-back run is skipped.
+        skipProjectCommit = true;
+        applyProject(opened);
+        pushToast('success', m.treeLoadedToast());
+      } else {
+        pushToast('error', m.treeInvalidProject());
+        const session = loadSession();
+        if (session) {
+          applyProject(session);
+          pushToast('info', m.treeAutosaveRestored());
+        }
+      }
+    } else {
+      const session = loadSession();
+      if (session) {
+        applyProject(session);
+        pushToast('info', m.treeAutosaveRestored());
+      } else if (hasSession()) {
+        pushToast('warn', m.treeRestoreFailedToast());
+      }
+    }
+    captureRequested = handoff?.type === 'capture';
     ready = true;
+    if (captureRequested) void captureToProject();
   });
 
   function fmtTime(timestamp: number): string {
@@ -966,6 +1151,21 @@
 />
 
 <div class="tree-tool">
+  {#if doc}
+    <ToolProjectBar
+      kind="tree"
+      getPayload={() => buildProject() ?? {}}
+      getName={() => {
+        const project = buildProject();
+        return project ? treeDocName(project) : 'Phylogenetic tree';
+      }}
+      getPreview={renderProjectPreview}
+      getSummary={() => {
+        const project = buildProject();
+        return project ? treeSummary(project) : undefined;
+      }}
+    />
+  {/if}
   <div class="tree-workspace">
     <!-- ============================ LEFT PANEL ============================ -->
     <aside class="panel panel-left">
@@ -1119,6 +1319,9 @@
           </button>
           <button class="pix-btn tiny" onclick={() => void exportProject()} disabled={!doc}>
             <Braces size={10} /> {m.treeExportProject()}
+          </button>
+          <button class="pix-btn tiny accent" onclick={() => void exportBundle()} disabled={!doc}>
+            <Package size={10} /> {m.treeBundleExport()}
           </button>
           <button class="pix-btn tiny" onclick={() => projectInput?.click()}>
             <FileUp size={10} /> {m.treeImportProject()}
@@ -1302,6 +1505,55 @@
       </section>
 
       <section class="pix-section">
+        <h3 class="sec-title"><SlidersHorizontal size={11} /> {m.treeSupportHistTitle()}</h3>
+        {#if support.withSupport > 0}
+          <div class="support-hist" role="img" aria-label={m.treeSupportHistTitle()}>
+            {#each support.bins as bin (bin.index)}
+              <div class="support-col" title={`${bin.from}-${bin.to}: ${bin.total}`}>
+                <div class="support-stack">
+                  {#if bin.filtered > 0}
+                    <span
+                      class="support-filtered"
+                      style="height:{(bin.filtered / supportBinMax) * 100}%"
+                    ></span>
+                  {/if}
+                  {#if bin.shown > 0}
+                    <span
+                      class="support-shown"
+                      style="height:{(bin.shown / supportBinMax) * 100}%"
+                    ></span>
+                  {/if}
+                </div>
+                <span class="support-tick">{bin.from}</span>
+              </div>
+            {/each}
+          </div>
+          <div class="hint">
+            {m.treeSupportHistShown({
+              shown: String(support.shown),
+              total: String(support.withSupport),
+              threshold: String(support.threshold)
+            })}
+          </div>
+          <div class="support-legend">
+            <span><i class="support-key shown"></i> {m.treeSupportHistShownLegend()}</span>
+            <span><i class="support-key filtered"></i> {m.treeSupportHistFilteredLegend()}</span>
+          </div>
+          <div class="stats-line">
+            <span>{m.treeSupportHistStats()}</span>
+            <span>
+              {support.min === null ? m.treeSupportNone() : formatNumber(support.min)} /
+              {support.mean === null ? m.treeSupportNone() : formatNumber(support.mean)} /
+              {support.max === null ? m.treeSupportNone() : formatNumber(support.max)}
+            </span>
+          </div>
+          <div class="hint">{m.treeSupportHistHint()}</div>
+        {:else}
+          <div class="hint">{m.treeSupportHistEmpty()}</div>
+        {/if}
+      </section>
+
+      <section class="pix-section">
         <h3 class="sec-title"><Search size={11} /> {m.treeSelectionTitle()}</h3>
         {#if selectedLayout && selectedTreeNode}
           <div class="sel-type">
@@ -1341,6 +1593,62 @@
         {/if}
       </section>
 
+      <section class="pix-section">
+        <h3 class="sec-title"><GitCompare size={11} /> {m.treeCompareTitle()}</h3>
+        <textarea
+          class="input-area"
+          rows={3}
+          spellcheck="false"
+          placeholder={m.treeComparePh()}
+          bind:value={compareText}
+          oninput={() => {
+            if (compareError) compareError = null;
+            if (compareName) compareName = '';
+          }}
+        ></textarea>
+        <div class="btn-row">
+          <button class="pix-btn tiny ok" onclick={() => runComparison()} disabled={comparing}>
+            <GitCompare size={10} /> {m.treeCompareBtn()}
+          </button>
+          <button class="pix-btn tiny" onclick={() => compareInput?.click()}>
+            <Upload size={10} /> {m.treeCompareFile()}
+          </button>
+          {#if comparison || compareText}
+            <button class="pix-btn tiny" onclick={clearComparison}>{m.treeCompareClear()}</button>
+          {/if}
+        </div>
+        {#if compareError}
+          <div class="warn-note">{compareError}</div>
+        {/if}
+        {#if comparison}
+          {#if compareName}
+            <div class="pix-dim tiny">{compareName}</div>
+          {/if}
+          <div class="field-label">{m.treeCompareResult()}</div>
+          {#if comparison.identical}
+            <div class="ok-note">{m.treeCompareIdentical()}</div>
+          {/if}
+          <div class="kv"><span>{m.treeCompareRf()}</span><b>{comparison.rf}</b></div>
+          <div class="kv">
+            <span>{m.treeCompareNormRf()}</span><b>{(comparison.normalizedRf * 100).toFixed(1)}%</b>
+          </div>
+          <div class="kv"><span>{m.treeCompareSharedSplits()}</span><b>{comparison.sharedSplits}</b></div>
+          <div class="kv"><span>{m.treeCompareUniqueCurrent()}</span><b>{comparison.uniqueA}</b></div>
+          <div class="kv"><span>{m.treeCompareUniqueOther()}</span><b>{comparison.uniqueB}</b></div>
+          <div class="kv"><span>{m.treeCompareSharedLeaves()}</span><b>{comparison.sharedLeaves.length}</b></div>
+          <div class="kv"><span>{m.treeCompareOnlyCurrent()}</span><b>{comparison.leavesOnlyA.length}</b></div>
+          <div class="kv"><span>{m.treeCompareOnlyOther()}</span><b>{comparison.leavesOnlyB.length}</b></div>
+          <div class="hint">
+            {m.treeCompareSplits({
+              a: String(comparison.splitsA),
+              b: String(comparison.splitsB)
+            })}
+          </div>
+        {:else}
+          <div class="hint">{m.treeCompareHint()}</div>
+        {/if}
+      </section>
+
       <section class="pix-section shortcuts">
         <h3 class="sec-title"><SlidersHorizontal size={11} /> {m.treeShortcutsTitle()}</h3>
         <div class="shortcut"><kbd>F</kbd><span>{m.treeShortcutFit()}</span></div>
@@ -1358,12 +1666,14 @@
 <input class="hidden-input" type="file" accept=".nwk,.tree,.newick,.txt" bind:this={uploadInput} onchange={onUploadPicked} />
 <input class="hidden-input" type="file" accept=".csv,.tsv,.txt" bind:this={metaInput} onchange={onMetadataPicked} />
 <input class="hidden-input" type="file" accept=".json,application/json" bind:this={projectInput} onchange={onProjectPicked} />
+<input class="hidden-input" type="file" accept=".nwk,.tree,.newick,.txt" bind:this={compareInput} onchange={onComparePicked} />
 
 <style>
   .tree-tool {
     flex: 1;
     min-height: 0;
     display: flex;
+    flex-direction: column;
     background: var(--pix-bg);
     font-family: var(--pix-font);
     overflow: hidden;
@@ -1418,6 +1728,71 @@
     padding: 4px 6px;
   }
   .warn-text { color: var(--pix-accent); }
+  .ok-note {
+    font-size: 9.5px;
+    line-height: 1.5;
+    color: var(--pix-green, #53d769);
+    border: 1px dashed var(--pix-green, #53d769);
+    background: rgba(83, 215, 105, 0.08);
+    padding: 4px 6px;
+  }
+  .support-hist {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 56px;
+    padding: 3px 2px 0;
+    border: 1px solid var(--pix-border);
+    background: var(--pix-bg);
+  }
+  .support-col {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 1px;
+  }
+  .support-stack {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+    gap: 1px;
+  }
+  .support-filtered,
+  .support-shown {
+    display: block;
+    min-height: 1px;
+    border-radius: 1px 1px 0 0;
+  }
+  .support-filtered { background: var(--pix-fg-dim); opacity: 0.45; }
+  .support-shown { background: var(--pix-cyan); }
+  .support-tick {
+    font-size: 7px;
+    line-height: 1;
+    color: var(--pix-fg-dim);
+    text-align: center;
+    transform: scale(0.9);
+  }
+  .support-legend {
+    display: flex;
+    gap: 10px;
+    font-size: 8.5px;
+    color: var(--pix-fg-dim);
+  }
+  .support-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .support-key {
+    width: 8px;
+    height: 8px;
+    display: inline-block;
+    border-radius: 1px;
+  }
+  .support-key.shown { background: var(--pix-cyan); }
+  .support-key.filtered { background: var(--pix-fg-dim); opacity: 0.45; }
 
   .input-area {
     width: 100%;

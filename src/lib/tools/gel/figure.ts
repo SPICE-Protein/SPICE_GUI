@@ -2,6 +2,7 @@
 // hit testing. Build a list of primitives once, then rasterise or serialise it;
 // this keeps every output identical to what the user sees.
 import type { Annotation, GelLane, GelProject } from './types';
+import { createCanvas } from '$lib/tools/shared/canvas';
 
 export interface Box {
   x: number;
@@ -59,7 +60,7 @@ const RED = '#d21f2a';
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 function ctx(): CanvasRenderingContext2D {
-  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')!;
+  if (!measureCtx) measureCtx = createCanvas().getContext('2d')!;
   return measureCtx;
 }
 

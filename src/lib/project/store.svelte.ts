@@ -16,6 +16,7 @@ import {
   summarize,
   touchUpdated,
   validateSpiceProject,
+  TOOL_DOC_EXTENSIONS,
   type ProjectDoc,
   type ProjectDocKind,
   type ProjectFileEntry,
@@ -285,14 +286,16 @@ class ProjectStore {
 
   // ---------------- docs ----------------
 
-  addDoc(kind: ProjectDocKind, name: string, payload: unknown): string {
+  addDoc(kind: ProjectDocKind, name: string, payload: unknown, opts?: { preview?: string; summary?: string }): string {
     if (!this.current) throw new Error('no project open');
     const doc: ProjectDoc = {
       id: newJournalDocId(),
       kind,
-      name: (name || '').trim() || (kind === 'gene' ? 'Gene' : 'Protein'),
+      name: (name || '').trim() || kind.charAt(0).toUpperCase() + kind.slice(1),
       payload,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      preview: opts?.preview,
+      summary: opts?.summary
     };
     this.current.docs.push(doc);
     touchUpdated(this.current);
@@ -334,7 +337,9 @@ class ProjectStore {
     const d = this.getDoc(id);
     if (!d) return { ok: false, error: 'no such doc' };
     const text = JSON.stringify(d.payload, null, 2);
-    const fileName = `${d.name || (d.kind === 'gene' ? 'gene' : 'protein')}.${d.kind === 'gene' ? 'spiceg' : 'spicep'}`;
+    const ext =
+      d.kind === 'gene' ? 'spiceg' : d.kind === 'protein' ? 'spicep' : TOOL_DOC_EXTENSIONS[d.kind];
+    const fileName = `${d.name || d.kind}.${ext}`;
     const r = await backend.saveExport(fileName, text);
     if (r.data?.saved) return { ok: true, path: r.data.path };
     return { ok: false, error: r.error, canceled: !r.error };
@@ -401,6 +406,40 @@ class ProjectStore {
 
   commitProteinDoc(payload: unknown) {
     this.commitActiveDoc('protein', payload);
+  }
+
+  /** Generic write-back used by every tool editor. */
+  commitDoc(kind: ProjectDocKind, payload: unknown) {
+    this.commitActiveDoc(kind, payload);
+  }
+
+  /** Refresh the hub thumbnail/summary for the active document. */
+  updateActiveDocPreview(preview?: string | null, summary?: string) {
+    const doc = this.activeDoc;
+    if (!doc) return;
+    if (typeof preview === 'string' && preview.startsWith('data:image/')) doc.preview = preview;
+    if (typeof summary === 'string' && summary.trim()) doc.summary = summary.trim();
+    doc.updatedAt = new Date().toISOString();
+    this.dirty = true;
+    this.persistSoon();
+  }
+
+  /** Append a document preview to the active journal page as a Markdown image. */
+  insertDocPreviewIntoJournal(docId: string, caption?: string): boolean {
+    const doc = this.getDoc(docId);
+    if (!doc?.preview || !this.current) return false;
+    const page = this.activeJournalPage ?? this.addJournalPage();
+    if (!page) return false;
+    const alt = (caption || doc.name).replace(/[\[\]]/g, '');
+    const image = `![${alt}](${doc.preview})`;
+    const block = doc.summary ? `${image}\n\n*${doc.summary}*` : image;
+    page.markdownContent = page.markdownContent.trim()
+      ? `${page.markdownContent.trimEnd()}\n\n${block}\n`
+      : `${block}\n`;
+    touchUpdated(this.current);
+    this.dirty = true;
+    this.persistSoon();
+    return true;
   }
 
   private commitActiveDoc(kind: ProjectDocKind, payload: unknown) {
@@ -493,6 +532,10 @@ class ProjectStore {
 
   openDocInProteinPage(docId: string) {
     this.prepareHandoff({ type: 'openDoc', docId, kind: 'protein' });
+  }
+
+  openDocInToolPage(docId: string, kind: ProjectDocKind) {
+    this.prepareHandoff({ type: 'openDoc', docId, kind });
   }
 
   requestWorkspaceCapture(kind: ProjectDocKind) {

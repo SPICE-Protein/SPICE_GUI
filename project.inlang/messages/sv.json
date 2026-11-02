@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "Fokus: {group}",
   "treeSupportFiltered": "Stöd under tröskeln är dolt",
   "treeFileTooLarge": "Filen är för stor (gräns 20 MB)",
-  "treeReadFailed": "Filen kunde inte läsas"
+  "treeReadFailed": "Filen kunde inte läsas",
+  "projectToolCaptureBtn": "Hämta från verktyg",
+  "projectToolSelectLabel": "Verktyg",
+  "projectDocInsertJournal": "Infoga i journal",
+  "projectDocInsertedToast": "Figuren infogades på aktuell journalsida",
+  "projectDocNoPreview": "Det här dokumentet har ingen förhandsbild ännu"
 }

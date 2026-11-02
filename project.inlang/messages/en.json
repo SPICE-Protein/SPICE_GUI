@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "Focus: {group}",
   "treeSupportFiltered": "Support below the threshold is hidden",
   "treeFileTooLarge": "File too large (20 MB limit)",
-  "treeReadFailed": "Could not read file"
+  "treeReadFailed": "Could not read file",
+  "projectToolCaptureBtn": "Capture from tool",
+  "projectToolSelectLabel": "Tool",
+  "projectDocInsertJournal": "Insert into journal",
+  "projectDocInsertedToast": "Figure inserted into the current journal page",
+  "projectDocNoPreview": "This document has no preview image yet"
 }

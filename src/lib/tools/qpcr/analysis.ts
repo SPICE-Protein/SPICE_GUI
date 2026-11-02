@@ -16,6 +16,7 @@ export type QcFlag =
   | 'replicateSd'
   | 'outlier'
   | 'duplicateWell'
+  | 'missingRef'
   | 'invalid';
 
 export interface WellQc {
@@ -74,6 +75,12 @@ export function computeQc(wells: Well[], settings: QpcrSettings): Record<string,
   const outlierLimit = Number.isFinite(settings.outlierLimit)
     ? settings.outlierLimit
     : Number.POSITIVE_INFINITY;
+  const referenceKeys = new Set(
+    (settings.referenceTargets ?? [])
+      .concat(settings.referenceTarget ? [settings.referenceTarget] : [])
+      .map(normKey)
+      .filter((key) => key.length > 0),
+  );
   const replicateGroups = new Map<string, Well[]>();
   const wellCounts = new Map<string, number>();
 
@@ -131,8 +138,10 @@ export function computeQc(wells: Well[], settings: QpcrSettings): Record<string,
     const targetKey = normKey(well.target);
     const wellKey = normKey(well.well);
     if (!sampleKey || !targetKey) flags.push('invalid');
-    if (well.ct === null) flags.push('missingCt');
-    else if (well.ct > highCt) flags.push('highCt');
+    if (well.ct === null) {
+      flags.push('missingCt');
+      if (referenceKeys.has(targetKey)) flags.push('missingRef');
+    } else if (well.ct > highCt) flags.push('highCt');
 
     const groupKey = `${sampleKey}\u0000${targetKey}`;
     const stats = replicateStats.get(groupKey);
@@ -243,12 +252,16 @@ export interface DdctMatrixRow {
   category: string;
   isControl: boolean;
   refCt: number | null;
+  /** Selected reference targets without a Ct value for this sample. */
+  referenceMissing: string[];
   dCt: Record<string, number | null>;
   ddCt: Record<string, number | null>;
 }
 
 export interface DdctAnalysis {
+  /** First selected reference, kept for single-reference callers. */
   reference: InfoItem | null;
+  references: InfoItem[];
   targets: InfoItem[];
   samples: InfoItem[];
   groups: InfoItem[];
@@ -264,6 +277,8 @@ export interface DdctAnalysis {
   missingControl: boolean;
   referenceFallback: boolean;
   controlFallback: boolean;
+  /** Samples where at least one selected reference target has no Ct. */
+  referenceMissingSamples: DdctMatrixRow[];
 }
 
 interface SampleBucket {
@@ -272,8 +287,17 @@ interface SampleBucket {
   group: string;
   category: string;
   isControl: boolean;
-  refWells: Well[];
+  refWells: Map<string, Well[]>;
   targetWells: Map<string, Well[]>;
+}
+
+/** Geometric mean of positive Ct values; null when no usable value exists. */
+function geometricMean(values: number[]): number | null {
+  const usable = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (!usable.length) return null;
+  let logSum = 0;
+  for (const value of usable) logSum += Math.log(value);
+  return Math.exp(logSum / usable.length);
 }
 
 export function computeDdct(
@@ -288,9 +312,28 @@ export function computeDdct(
   const samples = listSamples(analysisWells);
   const groups = listGroups(analysisWells);
   const hasGroups = groups.length > 0;
-  const reference = resolveInfo(settings.referenceTarget, targets) ?? targets[0] ?? null;
+  const requestedLabels = (settings.referenceTargets ?? [])
+    .concat(settings.referenceTarget ? [settings.referenceTarget] : [])
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0);
+  const requestedKeys: string[] = [];
+  for (const label of requestedLabels) {
+    const key = normKey(label);
+    if (key && !requestedKeys.includes(key)) requestedKeys.push(key);
+  }
+  const resolvedReferences: InfoItem[] = [];
+  for (const key of requestedKeys) {
+    const item = targets.find((target) => target.key === key);
+    if (item && !resolvedReferences.some((ref) => ref.key === item.key)) {
+      resolvedReferences.push(item);
+    }
+  }
+  const references = resolvedReferences.length ? resolvedReferences : targets.slice(0, 1);
+  const reference = references[0] ?? null;
   const referenceFallback =
-    !!reference && resolveInfo(settings.referenceTarget, targets) === null;
+    references.length > 0 &&
+    (requestedKeys.length === 0 || resolvedReferences.length < requestedKeys.length);
+  const referenceKeys = new Set(references.map((item) => item.key));
 
   const groupLabelByKey = new Map(groups.map((g) => [g.key, g.label]));
   const sampleLabelByKey = new Map(samples.map((s) => [s.key, s.label]));
@@ -312,13 +355,15 @@ export function computeDdct(
         group: groupLabel,
         category: hasGroups && groupLabel ? groupLabel : (sampleLabelByKey.get(sampleKey) ?? well.sample.trim()),
         isControl: false,
-        refWells: [],
+        refWells: new Map(),
         targetWells: new Map(),
       };
       buckets.set(sampleKey, bucket);
     }
-    if (reference && targetKey === reference.key) {
-      bucket.refWells.push(well);
+    if (referenceKeys.has(targetKey)) {
+      const list = bucket.refWells.get(targetKey);
+      if (list) list.push(well);
+      else bucket.refWells.set(targetKey, [well]);
     } else {
       const list = bucket.targetWells.get(targetKey);
       if (list) list.push(well);
@@ -374,18 +419,29 @@ export function computeDdct(
   }
 
   const refCtBySample = new Map<string, number | null>();
+  const refMissingBySample = new Map<string, string[]>();
   for (const key of orderedKeys) {
     const bucket = buckets.get(key)!;
-    const values = bucket.refWells.map((w) => w.ct as number);
-    refCtBySample.set(key, values.length ? mean(values) : null);
+    const perTarget: number[] = [];
+    const missing: string[] = [];
+    for (const ref of references) {
+      const wells = bucket.refWells.get(ref.key) ?? [];
+      const values = wells
+        .map((well) => well.ct)
+        .filter((value): value is number => value !== null);
+      if (values.length) perTarget.push(mean(values));
+      else missing.push(ref.label);
+    }
+    refCtBySample.set(key, geometricMean(perTarget));
+    refMissingBySample.set(key, missing);
   }
   const referenceUsableInControl =
-    !!reference &&
+    references.length > 0 &&
     [...controlKeys].some((key) => (refCtBySample.get(key) ?? null) !== null);
 
   const controlMeanDCt: Record<string, number | null> = {};
   for (const target of targets) {
-    if (reference && target.key === reference.key) {
+    if (referenceKeys.has(target.key)) {
       controlMeanDCt[target.key] = 0;
       continue;
     }
@@ -414,7 +470,7 @@ export function computeDdct(
 
     for (const target of targets) {
       let value: number | null = null;
-      if (reference && target.key === reference.key) {
+      if (referenceKeys.has(target.key)) {
         value = refCt === null ? null : 0;
       } else if (refCt !== null) {
         const list = bucket.targetWells.get(target.key);
@@ -432,13 +488,14 @@ export function computeDdct(
       category: bucket.category,
       isControl: bucket.isControl,
       refCt,
+      referenceMissing: refMissingBySample.get(key) ?? [],
       dCt,
       ddCt,
     });
 
     if (refCt === null) continue;
     for (const target of targets) {
-      if (reference && target.key === reference.key) continue;
+      if (referenceKeys.has(target.key)) continue;
       const targetWells = bucket.targetWells.get(target.key);
       const controlMean = controlMeanDCt[target.key];
       if (!targetWells?.length || controlMean === null) continue;
@@ -517,7 +574,7 @@ export function computeDdct(
   for (const row of matrix) {
     if (!categoryOrder.includes(row.category)) categoryOrder.push(row.category);
   }
-  const resolvedTargets = targets.filter((t) => !reference || t.key !== reference.key);
+  const resolvedTargets = targets.filter((t) => !referenceKeys.has(t.key));
   for (const category of categoryOrder) {
     const categoryKey = normKey(category);
     const controlValuesByTarget = new Map<string, number[]>();
@@ -560,6 +617,7 @@ export function computeDdct(
 
   return {
     reference,
+    references,
     targets,
     samples,
     groups,
@@ -571,10 +629,12 @@ export function computeDdct(
     controlMeanDCt,
     controlLabel,
     controlSampleKeys: [...controlKeys],
-    missingReference: !reference || targets.length < 2 || !referenceUsableInControl,
+    missingReference:
+      references.length === 0 || resolvedTargets.length === 0 || !referenceUsableInControl,
     missingControl: !controlKeys.size,
     referenceFallback,
     controlFallback,
+    referenceMissingSamples: matrix.filter((row) => row.referenceMissing.length > 0),
   };
 }
 

@@ -22,6 +22,23 @@ env:
   NODE_OPTIONS: --max-old-space-size=8192
 
 jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+      - name: Algorithm tests
+        run: pnpm test
+
   # ==========================================================================
   # Four desktop targets: all use native-architecture runners, zero cross-compilation.
   #   windows-2022     → x86_64-pc-windows-msvc   (NSIS + MSI)

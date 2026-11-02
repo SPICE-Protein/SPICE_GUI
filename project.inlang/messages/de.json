@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "Fokus: {group}",
   "treeSupportFiltered": "Support unter der Schwelle ist ausgeblendet",
   "treeFileTooLarge": "Datei zu groß (Grenze 20 MB)",
-  "treeReadFailed": "Datei konnte nicht gelesen werden"
+  "treeReadFailed": "Datei konnte nicht gelesen werden",
+  "projectToolCaptureBtn": "Aus Werkzeug übernehmen",
+  "projectToolSelectLabel": "Werkzeug",
+  "projectDocInsertJournal": "In Journal einfügen",
+  "projectDocInsertedToast": "Abbildung in die aktuelle Journalseite eingefügt",
+  "projectDocNoPreview": "Dieses Dokument hat noch keine Vorschau"
 }

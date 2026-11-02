@@ -5,6 +5,7 @@
 import { cropCanvas } from './image';
 import { groupMetricStats, type BandMeasurement, type GroupStat, type QuantResult } from './quant';
 import type { BlotProject } from './types';
+import { canvasToPngBytes, createCanvas } from '$lib/tools/shared/canvas';
 
 // One measure across groups uses one bar hue; group identity is carried by the
 // axis labels, so no categorical colour cycle or legend is needed.
@@ -41,9 +42,7 @@ export function annotatedCanvas(
 ): HTMLCanvasElement {
   const crop = cropCanvas(processed, project.crop);
   const labelH = options.laneLabels === false ? 0 : Math.max(22, Math.round(crop.height * 0.07));
-  const out = document.createElement('canvas');
-  out.width = crop.width;
-  out.height = crop.height + labelH;
+  const out = createCanvas(crop.width, crop.height + labelH);
   const ctx = out.getContext('2d')!;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, out.width, out.height);
@@ -390,6 +389,8 @@ export interface CsvLabels {
   groupMean: string;
   groupSd: string;
   groupSem: string;
+  groupCi95: string;
+  groupP: string;
   groupN: string;
   metric: string;
 }
@@ -420,6 +421,8 @@ export function resultsCsv(
     labels.groupMean,
     labels.groupSd,
     labels.groupSem,
+    labels.groupCi95,
+    labels.groupP,
     labels.groupN,
     labels.metric,
   ];
@@ -442,6 +445,12 @@ export function resultsCsv(
         fmt(row.groupMean, 6),
         fmt(row.groupSd, 6),
         fmt(row.groupSem, 6),
+        row.groupN >= 2 ? fmt(row.groupCi95, 6) : '',
+        row.groupP === null
+          ? ''
+          : row.groupP > 0 && row.groupP < 0.0001
+            ? row.groupP.toExponential(3)
+            : fmt(row.groupP, 6),
         row.groupN,
         project.chartMetric,
       ]
@@ -480,20 +489,13 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
   return out;
 }
 
-async function canvasToBytes(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-  const blob: Blob = await new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encoding failed'))), 'image/png'),
-  );
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
 /** Insert a pHYs chunk so the annotated PNG carries the requested print DPI. */
 export async function annotatedPng(
   canvas: HTMLCanvasElement,
   dpi: number,
   description: string,
 ): Promise<Uint8Array> {
-  const png = await canvasToBytes(canvas);
+  const png = await canvasToPngBytes(canvas);
   const phys = new Uint8Array(9);
   const pv = new DataView(phys.buffer);
   const ppm = Math.round(dpi / 0.0254);

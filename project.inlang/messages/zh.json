@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "聚焦：{group}",
   "treeSupportFiltered": "已隐藏低于阈值的支持度",
   "treeFileTooLarge": "文件过大（上限 20 MB）",
-  "treeReadFailed": "无法读取文件"
+  "treeReadFailed": "无法读取文件",
+  "projectToolCaptureBtn": "从工具捕获",
+  "projectToolSelectLabel": "工具",
+  "projectDocInsertJournal": "插入日志",
+  "projectDocInsertedToast": "图片已插入当前日志页",
+  "projectDocNoPreview": "该文档还没有可插入的预览图"
 }

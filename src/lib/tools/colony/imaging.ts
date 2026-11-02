@@ -3,6 +3,14 @@
 // rotating, cropping and (optionally) downscaling. Detector input is a further
 // downscaled grayscale copy; results are mapped back to working coordinates.
 import type { ColonyAdjust, ColonyCrop, ColonyMarker } from './types';
+import {
+  bytesToDataUrl,
+  canvasToDataUrl,
+  createCanvas,
+  loadRasterImage,
+  rasterHeight,
+  rasterWidth,
+} from '$lib/tools/shared/canvas';
 
 /** Hard cap for the working canvas so 50 MP phone photos stay responsive. */
 export const MAX_WORK_DIM = 4096;
@@ -40,18 +48,12 @@ export interface WorkMeta {
 
 const imageCache = new Map<string, HTMLImageElement>();
 
-export function loadImageElement(src: string): Promise<HTMLImageElement> {
+export async function loadImageElement(src: string): Promise<HTMLImageElement> {
   const cached = imageCache.get(src);
-  if (cached && cached.complete) return Promise.resolve(cached);
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      imageCache.set(src, img);
-      resolve(img);
-    };
-    img.onerror = () => reject(new Error('Image decode failed'));
-    img.src = src;
-  });
+  if (cached && (cached.complete || !('naturalWidth' in cached))) return cached;
+  const img = await loadRasterImage(src);
+  imageCache.set(src, img);
+  return img;
 }
 
 function looksLikeTiff(file: File, bytes: Uint8Array): boolean {
@@ -60,16 +62,6 @@ function looksLikeTiff(file: File, bytes: Uint8Array): boolean {
   const little = bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2a && bytes[3] === 0;
   const big = bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[2] === 0 && bytes[3] === 0x2a;
   return little || big;
-}
-
-export async function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
-  const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('File read failed'));
-    reader.readAsDataURL(blob);
-  });
 }
 
 /** Decode PNG/JPEG/WebP through the browser; TIFF goes through UTIF so raw
@@ -82,8 +74,8 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
     const img = await loadImageElement(dataUrl);
     return {
       dataUrl,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
+      width: rasterWidth(img),
+      height: rasterHeight(img),
       mime,
       name: file.name,
     };
@@ -102,15 +94,13 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
   const width = ifd.width as number;
   const height = ifd.height as number;
   if (!width || !height) throw new Error('TIFF has invalid dimensions');
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d')!;
   const out = ctx.createImageData(width, height);
   out.data.set(rgba);
   ctx.putImageData(out, 0, 0);
   return {
-    dataUrl: canvas.toDataURL('image/png'),
+    dataUrl: await canvasToDataUrl(canvas),
     width,
     height,
     mime: 'image/tiff',
@@ -137,8 +127,8 @@ export function cropRect(crop: ColonyCrop, rotatedWidth: number, rotatedHeight: 
 
 /** Rotate (quarter turns clockwise), crop and cap the working canvas. */
 export function buildWorkCanvas(img: HTMLImageElement, rotate: number, crop: ColonyCrop): WorkMeta {
-  const width = img.naturalWidth;
-  const height = img.naturalHeight;
+  const width = rasterWidth(img);
+  const height = rasterHeight(img);
   const r = ((Math.round(rotate / 90) * 90) % 360 + 360) % 360;
   const swap = r === 90 || r === 270;
   const rotatedWidth = swap ? height : width;
@@ -147,9 +137,7 @@ export function buildWorkCanvas(img: HTMLImageElement, rotate: number, crop: Col
   const scale = Math.min(1, MAX_WORK_DIM / Math.max(sw, sh));
   const outWidth = Math.max(1, Math.round(sw * scale));
   const outHeight = Math.max(1, Math.round(sh * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = outWidth;
-  canvas.height = outHeight;
+  const canvas = createCanvas(outWidth, outHeight);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
@@ -241,9 +229,7 @@ export function transformMarkersBetween(oldMeta: WorkMeta, newMeta: WorkMeta, ma
 export function renderAdjusted(source: HTMLCanvasElement, adjust: ColonyAdjust): HTMLCanvasElement {
   const noColorChange = !adjust.grayscale && !adjust.invert && Math.abs(adjust.contrast - 1) < 1e-4 && Math.abs(adjust.brightness) < 1e-4;
   if (noColorChange) return source;
-  const canvas = document.createElement('canvas');
-  canvas.width = source.width;
-  canvas.height = source.height;
+  const canvas = createCanvas(source.width, source.height);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(source, 0, 0);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -285,9 +271,7 @@ export function downscaleCanvas(source: HTMLCanvasElement, maxDim: number): Scal
   if (scale >= 1) return { canvas: source, scaleX: 1, scaleY: 1 };
   const width = Math.max(1, Math.round(source.width * scale));
   const height = Math.max(1, Math.round(source.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
@@ -311,9 +295,7 @@ export function extractGray(canvas: HTMLCanvasElement): { gray: Float32Array; wi
 
 /** Binary mask preview canvas (foreground in cyan). */
 export function maskPreviewCanvas(mask: Uint8Array, width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d')!;
   const image = ctx.createImageData(width, height);
   const data = image.data;
@@ -331,9 +313,7 @@ export function maskPreviewCanvas(mask: Uint8Array, width: number, height: numbe
 
 /** Export-resolution binary mask (white foreground, black background). */
 export function maskExportCanvas(mask: Uint8Array, width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d')!;
   const image = ctx.createImageData(width, height);
   const data = image.data;

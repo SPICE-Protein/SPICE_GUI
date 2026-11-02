@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "Focus: {group}",
   "treeSupportFiltered": "Support onder de drempel is verborgen",
   "treeFileTooLarge": "Bestand te groot (limiet 20 MB)",
-  "treeReadFailed": "Bestand kon niet worden gelezen"
+  "treeReadFailed": "Bestand kon niet worden gelezen",
+  "projectToolCaptureBtn": "Overnemen uit tool",
+  "projectToolSelectLabel": "Tool",
+  "projectDocInsertJournal": "In journaal invoegen",
+  "projectDocInsertedToast": "Afbeelding in de huidige journaalpagina ingevoegd",
+  "projectDocNoPreview": "Dit document heeft nog geen voorbeeld"
 }

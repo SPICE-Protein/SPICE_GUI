@@ -4,13 +4,43 @@
   // The project JSON embeds every image, so exports stay portable.
   import { onMount } from 'svelte';
   import * as m from '$lib/paraglide/messages.js';
+  import { am } from './messages';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { backend } from '$lib/backend/api';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
+  import {
+    ensureProjectLoaded,
+    finishToolCapture,
+    takeToolHandoff,
+  } from '$lib/tools/shared/projectBridge';
+  import { canvasPreview } from '$lib/tools/shared/preview';
+  import { saveReproBundle, type ReproFile } from '$lib/repro/bundle';
+  import {
+    annotateDocName,
+    annotateMethods,
+    annotateParameters,
+    annotateProfileAnnotations,
+    annotateSummary,
+    normalizeAnnotatePayload,
+  } from './projectDoc';
+  import {
+    collectProfiles,
+    computeProfile,
+    profileCsv,
+    profilePlotPath,
+    profileStatsText,
+    PROFILE_DEFAULT_SAMPLES,
+    PROFILE_MAX_SAMPLES,
+    PROFILE_MIN_SAMPLES,
+    type ProfileSeries,
+  } from './profile';
   import {
     PX_PER_MM,
     clamp,
     convertCalibration,
     convertValue,
+    createDefaultChannels,
     createDefaultProject,
     createId,
     formatValue,
@@ -23,10 +53,12 @@
     type AnnotateProject,
     type Annotation,
     type ArrowAnnotation,
+    type ChannelMix,
     type EllipseAnnotation,
     type LayoutSettings,
     type Panel,
     type PanelBarAnnotation,
+    type ProfileAnnotation,
     type RectAnnotation,
     type ScaleBarAnnotation,
     type TextAnnotation,
@@ -65,6 +97,7 @@
     saveSnapshot,
   } from './storage';
   import {
+    Activity,
     ArrowUpRight,
     Check,
     ChevronDown,
@@ -80,6 +113,7 @@
     Maximize2,
     Minus,
     MousePointer2,
+    Package,
     Plus,
     Redo2,
     RotateCcw,
@@ -94,11 +128,14 @@
     ScanLine,
   } from 'lucide-svelte';
 
-  type Busy = 'idle' | 'import' | 'png' | 'svg' | 'project';
+  type Busy = 'idle' | 'import' | 'png' | 'svg' | 'project' | 'bundle' | 'csv';
+
+  const CHANNEL_KEYS = ['r', 'g', 'b'] as const;
+  const CHANNEL_LABELS: Record<(typeof CHANNEL_KEYS)[number], string> = { r: 'R', g: 'G', b: 'B' };
 
   interface DrawDrag {
     kind: 'draw';
-    tool: 'arrow' | 'rect' | 'ellipse';
+    tool: 'arrow' | 'rect' | 'ellipse' | 'profile';
     start: Point;
     end: Point;
     before: AnnotateProject;
@@ -164,6 +201,10 @@
   let calibrateUnit = $state<Unit>('um');
   let undoStack = $state.raw<AnnotateProject[]>([]);
   let redoStack = $state.raw<AnnotateProject[]>([]);
+  let skipProjectCommit = false;
+  let profileSeries = $state<ProfileSeries | null>(null);
+  let profileBusy = $state(false);
+  let profileToken = 0;
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let stageEl = $state<HTMLDivElement | null>(null);
@@ -180,6 +221,13 @@
   const meta = $derived(buildAnnotationMeta(project, geom));
   const selectedPanel = $derived(project.panels.find((panel) => panel.id === selectedPanelId) ?? null);
   const selectedAnn = $derived(project.annotations.find((ann) => ann.id === selectedAnnId) ?? null);
+  const selectedProfile = $derived(
+    selectedAnn?.kind === 'profile' &&
+      profileSeries &&
+      profileSeries.annotationId === selectedAnn.id
+      ? profileSeries
+      : null,
+  );
   const selectedFrame = $derived(selectedPanel ? geom.frameById.get(selectedPanel.id) ?? null : null);
   const fitScale = $derived.by(() => {
     const availableW = Math.max(160, stageBox.w - 30);
@@ -220,6 +268,8 @@
         return m.annotHintScalebar();
       case 'panelbar':
         return m.annotHintPanelbar();
+      case 'profile':
+        return am.annotHintProfile();
       case 'calibrate':
         return m.annotHintCalibrate();
     }
@@ -234,6 +284,7 @@
     { id: 'text', icon: Type },
     { id: 'scalebar', icon: Ruler },
     { id: 'panelbar', icon: ScanLine },
+    { id: 'profile', icon: Activity },
     { id: 'calibrate', icon: Maximize2 },
   ] satisfies { id: ActiveTool; icon: unknown }[];
 
@@ -255,6 +306,8 @@
         return m.annotToolScalebar();
       case 'panelbar':
         return m.annotToolPanelbar();
+      case 'profile':
+        return am.annotToolProfile();
       case 'calibrate':
         return m.annotToolCalibrate();
     }
@@ -382,7 +435,7 @@
   // ---------------------------------------------------------- image artwork
 
   function previewKey(panel: Panel): string {
-    return `${panel.brightness}|${panel.contrast}|${panel.width}x${panel.height}|${panel.dataUrl.length}`;
+    return `${panel.brightness}|${panel.contrast}|${JSON.stringify(panel.channels)}|${panel.width}x${panel.height}|${panel.dataUrl.length}`;
   }
 
   function previewArt(panel: Panel): PanelArt | null {
@@ -433,6 +486,19 @@
     return out;
   }
 
+  /** Medium-resolution composite art for interactive profile sampling. */
+  async function buildProfileArts(source: AnnotateProject): Promise<Map<string, PanelArt>> {
+    const out = new Map<string, PanelArt>();
+    for (const panel of source.panels) {
+      try {
+        out.set(panel.id, await buildArtwork(panel, 1600, false));
+      } catch {
+        /* skip panels that cannot be decoded */
+      }
+    }
+    return out;
+  }
+
   function clearArtCaches() {
     for (const entry of previewEntries.values()) {
       if (entry.timer) clearTimeout(entry.timer);
@@ -440,6 +506,30 @@
     previewEntries.clear();
     clearImageCache();
     artVersion++;
+  }
+
+  async function renderProjectPreview(): Promise<string | null> {
+    if (!project.panels.length) return null;
+    const current = snapshot();
+    const figure = buildFigureGeometry(current);
+    const boxes = buildAnnotationMeta(current, figure);
+    const arts = await buildProfileArts(current);
+    const resolver = (panel: Panel) => arts.get(panel.id) ?? null;
+    const canvas = renderFigurePng(current, figure, resolver, boxes, 96);
+    return canvasPreview(canvas);
+  }
+
+  async function captureToProject() {
+    if (!projectStore.hasOpenProject) return;
+    const current = snapshot();
+    const preview = await renderProjectPreview();
+    finishToolCapture(
+      'annotate',
+      annotateDocName(current),
+      current,
+      preview ?? undefined,
+      annotateSummary(current),
+    );
   }
 
   // ---------------------------------------------------------------- drawing
@@ -480,7 +570,7 @@
     if (currentDrag) {
       if (currentDrag.kind === 'draw') {
         const draft: DraftShape = {
-          kind: currentDrag.tool,
+          kind: currentDrag.tool === 'profile' ? 'line' : currentDrag.tool,
           start: currentDrag.start,
           end: currentDrag.end,
         };
@@ -536,6 +626,58 @@
     if (panel?.calibration) calibrateUnit = panel.calibration.unit;
   });
 
+  // Mirror the live editor into the open project document. The first run after
+  // a handoff load is skipped so opening a document cannot overwrite it.
+  $effect(() => {
+    if (!ready) return;
+    const payload = snapshot();
+    if (projectStore.activeDocKind !== 'annotate') return;
+    if (skipProjectCommit) {
+      skipProjectCommit = false;
+      return;
+    }
+    projectStore.commitDoc('annotate', payload);
+  });
+
+  // Recompute the selected profile whenever the composite or the line changes.
+  $effect(() => {
+    const ann = selectedAnn;
+    void artVersion;
+    // historyKey registers every editable panel and annotation field, while
+    // avoiding a rebuild for unrelated reactive updates.
+    void historyKey(project);
+    if (!ann || ann.kind !== 'profile' || !project.panels.length) {
+      profileToken++;
+      profileSeries = null;
+      profileBusy = false;
+      return;
+    }
+    const annSnapshot = $state.snapshot(ann) as ProfileAnnotation;
+    const token = ++profileToken;
+    profileBusy = true;
+    const timer = setTimeout(() => {
+      const current = snapshot();
+      const figure = buildFigureGeometry(current);
+      buildProfileArts(current)
+        .then((arts) => {
+          const resolver = (panel: Panel) => arts.get(panel.id) ?? null;
+          const series = computeProfile(annSnapshot, current, figure, resolver, am.annotProfileTitle());
+          if (token !== profileToken) return;
+          profileSeries = series;
+        })
+        .catch(() => {
+          if (token === profileToken) profileSeries = null;
+        })
+        .finally(() => {
+          if (token === profileToken) profileBusy = false;
+        });
+    }, 120);
+    return () => {
+      clearTimeout(timer);
+      profileToken++;
+    };
+  });
+
   function flushAutosave() {
     if (!ready) return;
     const snap = snapshot();
@@ -553,15 +695,44 @@
   }
 
   onMount(() => {
-    const saved = loadSnapshot();
-    if (saved && (saved.panels.length || saved.annotations.length)) {
-      project = saved;
-      selectedPanelId = saved.panels[0]?.id ?? null;
-      pushToast('info', m.annotRestored());
+    ensureProjectLoaded();
+    const handoff = takeToolHandoff('annotate');
+    let captureRequested = false;
+    if (handoff?.type === 'open') {
+      const opened = normalizeAnnotatePayload(handoff.payload);
+      if (opened) {
+        // The handoff payload is authoritative; skip the immediate write-back
+        // so opening a document can never overwrite it with the local draft.
+        skipProjectCommit = true;
+        project = opened;
+        selectedPanelId = opened.panels[0]?.id ?? null;
+        selectedAnnId = null;
+        zoomFactor = 1;
+        clearArtCaches();
+        lastSavedKey = '';
+        pushToast('success', m.annotProjectLoaded());
+      } else {
+        pushToast('error', m.annotProjectInvalid());
+        const saved = loadSnapshot();
+        if (saved && (saved.panels.length || saved.annotations.length)) {
+          project = saved;
+          selectedPanelId = saved.panels[0]?.id ?? null;
+          pushToast('info', m.annotRestored());
+        }
+      }
+    } else {
+      const saved = loadSnapshot();
+      if (saved && (saved.panels.length || saved.annotations.length)) {
+        project = saved;
+        selectedPanelId = saved.panels[0]?.id ?? null;
+        pushToast('info', m.annotRestored());
+      }
     }
+    captureRequested = handoff?.type === 'capture';
     ready = true;
     window.addEventListener('beforeunload', flushAutosave);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    if (captureRequested) void captureToProject();
     return () => {
       window.removeEventListener('beforeunload', flushAutosave);
       document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -757,6 +928,85 @@
     }
   }
 
+  async function sampleAllProfiles(): Promise<ProfileSeries[]> {
+    const current = snapshot();
+    if (!annotateProfileAnnotations(current).length) return [];
+    const figure = buildFigureGeometry(current);
+    const arts = await buildExportArts(current, false);
+    const resolver = (panel: Panel) => arts.get(panel.id) ?? null;
+    return collectProfiles(current, figure, resolver);
+  }
+
+  async function exportProfilesCsv() {
+    if (busy !== 'idle') return;
+    busy = 'csv';
+    try {
+      const series = await sampleAllProfiles();
+      if (!series.length) {
+        pushToast('warn', am.annotProfileCsvEmpty());
+        return;
+      }
+      await saveText(`${baseName()}_profiles.csv`, profileCsv(series), am.annotProfileCsvDone());
+    } catch (error) {
+      pushToast('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      busy = 'idle';
+    }
+  }
+
+  async function exportBundle() {
+    if (!project.panels.length || busy !== 'idle') {
+      if (!project.panels.length) pushToast('warn', m.annotNoExport());
+      return;
+    }
+    busy = 'bundle';
+    try {
+      const current = snapshot();
+      const figure = buildFigureGeometry(current);
+      const boxes = buildAnnotationMeta(current, figure);
+      const arts = await buildExportArts(current, true);
+      const resolver = (panel: Panel) => arts.get(panel.id) ?? null;
+      const dpi = current.layout.exportDpi;
+      const canvas = renderFigurePng(current, figure, resolver, boxes, dpi);
+      const png = await encodePngWithDpi(canvas, dpi, figureSummary(current, figure, dpi));
+      const svg = figureToSvg(current, figure, resolver, boxes);
+      const profiles = await collectProfiles(current, figure, resolver);
+      const stem = baseName();
+      const files: ReproFile[] = [
+        { name: `${stem}_${dpi}dpi.png`, mime: 'image/png', data: png },
+        { name: `${stem}.svg`, mime: 'image/svg+xml', data: svg },
+      ];
+      if (profiles.length) {
+        files.push({ name: `${stem}_profiles.csv`, mime: 'text/csv', data: profileCsv(profiles) });
+      }
+      const result = await saveReproBundle({
+        tool: 'annotate',
+        title: annotateDocName(current),
+        files,
+        parameters: {
+          ...annotateParameters(current),
+          profiles: profiles.map((series) => ({
+            name: series.name,
+            annotationId: series.annotationId,
+            samples: series.samples,
+            min: Number(series.min.toFixed(3)),
+            max: Number(series.max.toFixed(3)),
+            mean: Number(series.mean.toFixed(3)),
+          })),
+        },
+        methods: annotateMethods(current),
+        project: current,
+      });
+      if (result.ok) pushToast('success', am.annotBundleDone(), result.path);
+      else if (result.canceled) pushToast('info', am.annotBundleCanceled());
+      else pushToast('error', am.annotBundleFailed(), result.error);
+    } catch (error) {
+      pushToast('error', am.annotBundleFailed(), error instanceof Error ? error.message : String(error));
+    } finally {
+      busy = 'idle';
+    }
+  }
+
   // -------------------------------------------------------------- pointer
 
   function toPoint(event: PointerEvent): Point {
@@ -872,7 +1122,7 @@
       };
       return;
     }
-    if (tool === 'arrow' || tool === 'rect' || tool === 'ellipse') {
+    if (tool === 'arrow' || tool === 'rect' || tool === 'ellipse' || tool === 'profile') {
       drag = { kind: 'draw', tool, start: point, end: point, before: snapshot() };
     }
   }
@@ -891,7 +1141,7 @@
     }
 
     if (drag.kind === 'draw') {
-      if (drag.tool === 'arrow') {
+      if (drag.tool === 'arrow' || drag.tool === 'profile') {
         drag.end = constrain(drag.start, point, event.shiftKey);
       } else if (event.shiftKey) {
         const dx = point.x - drag.start.x;
@@ -933,6 +1183,11 @@
       ann.y1 = d.orig.y1 + dy;
       ann.x2 = d.orig.x2 + dx;
       ann.y2 = d.orig.y2 + dy;
+    } else if (ann.kind === 'profile' && d.orig.kind === 'profile') {
+      ann.x1 = d.orig.x1 + dx;
+      ann.y1 = d.orig.y1 + dy;
+      ann.x2 = d.orig.x2 + dx;
+      ann.y2 = d.orig.y2 + dy;
     } else if (
       (ann.kind === 'rect' || ann.kind === 'ellipse' || ann.kind === 'text' || ann.kind === 'scalebar') &&
       d.orig.kind === ann.kind
@@ -955,6 +1210,14 @@
     const ann = project.annotations.find((item) => item.id === d.id);
     if (!ann) return;
     if (ann.kind === 'arrow' && d.orig.kind === 'arrow') {
+      if (d.handle === 'start') {
+        ann.x1 = point.x;
+        ann.y1 = point.y;
+      } else {
+        ann.x2 = point.x;
+        ann.y2 = point.y;
+      }
+    } else if (ann.kind === 'profile' && d.orig.kind === 'profile') {
       if (d.handle === 'start') {
         ann.x1 = point.x;
         ann.y1 = point.y;
@@ -1035,6 +1298,20 @@
         y2: d.end.y,
         strokeWidthPt: 1.5,
         headSizePt: 8,
+      };
+      project.annotations.push(ann);
+      selectedAnnId = ann.id;
+    } else if (d.tool === 'profile') {
+      const ann: ProfileAnnotation = {
+        kind: 'profile',
+        id: createId('ann'),
+        color: '#ffd23f',
+        x1: d.start.x,
+        y1: d.start.y,
+        x2: d.end.x,
+        y2: d.end.y,
+        samples: PROFILE_DEFAULT_SAMPLES,
+        strokeWidthPt: 1.2,
       };
       project.annotations.push(ann);
       selectedAnnId = ann.id;
@@ -1202,7 +1479,12 @@
         copy.y1 += 12;
         copy.x2 += 12;
         copy.y2 += 12;
-      } else {
+      } else if (copy.kind === 'profile') {
+        copy.x1 += 12;
+        copy.y1 += 12;
+        copy.x2 += 12;
+        copy.y2 += 12;
+      } else if (copy.kind === 'rect' || copy.kind === 'ellipse' || copy.kind === 'text' || copy.kind === 'scalebar') {
         copy.x += 12;
         copy.y += 12;
       }
@@ -1220,12 +1502,17 @@
         ann.y1 += dy;
         ann.x2 += dx;
         ann.y2 += dy;
+      } else if (ann.kind === 'profile') {
+        ann.x1 += dx;
+        ann.y1 += dy;
+        ann.x2 += dx;
+        ann.y2 += dy;
       } else if (ann.kind === 'panelbar') {
         const frame = geom.frameById.get(ann.panelId);
         if (!frame) return;
         ann.nx = clamp(ann.nx + dx / frame.w, 0, 1);
         ann.ny = clamp(ann.ny + dy / frame.h, 0, 1);
-      } else {
+      } else if (ann.kind === 'rect' || ann.kind === 'ellipse' || ann.kind === 'text' || ann.kind === 'scalebar') {
         ann.x += dx;
         ann.y += dy;
       }
@@ -1305,6 +1592,11 @@
         id: createId('panel'),
         name: `${panel.name} ${m.annotCopySuffix()}`,
         crop: { ...panel.crop },
+        channels: {
+          r: { ...panel.channels.r },
+          g: { ...panel.channels.g },
+          b: { ...panel.channels.b },
+        },
         calibration: panel.calibration ? { ...panel.calibration } : null,
       };
       project.panels.splice(index + 1, 0, copy);
@@ -1363,6 +1655,24 @@
       panel.brightness = 100;
       panel.contrast = 100;
     });
+  }
+
+  function resetChannels(panel: Panel) {
+    withCommit(() => {
+      panel.channels = createDefaultChannels();
+    });
+  }
+
+  function channelValue(panel: Panel, key: keyof ChannelMix) {
+    return panel.channels[key];
+  }
+
+  function selectedProfilePath(series: ProfileSeries | null): string {
+    return series ? profilePlotPath(series, 160, 52) : '';
+  }
+
+  function selectedProfileStats(series: ProfileSeries | null): string {
+    return series ? profileStatsText(series) : '';
   }
 
   function calibrationInput(panel: Panel): string {
@@ -1455,6 +1765,12 @@
         const tag = index >= 0 ? panelLabel(index, project.layout.labelStyle) : '—';
         return `${m.annotPanelBar()} ${tag}: ${formatValue(ann.value)} ${unitSymbol(ann.unit)}`;
       }
+      case 'profile': {
+        const lengthMm = Math.hypot(ann.x2 - ann.x1, ann.y2 - ann.y1) / PX_PER_MM;
+        return `${am.annotToolProfile()}: ${lengthMm.toFixed(1)} ${m.annotMm()}`;
+      }
+      default:
+        return '';
     }
   }
 
@@ -1481,6 +1797,14 @@
     type="file"
     accept=".json,application/json"
     onchange={onPickProject}
+  />
+
+  <ToolProjectBar
+    kind="annotate"
+    getPayload={() => snapshot()}
+    getName={() => annotateDocName(snapshot())}
+    getPreview={renderProjectPreview}
+    getSummary={() => annotateSummary(snapshot())}
   />
 
   <div class="annot-toolbar">
@@ -2043,6 +2367,58 @@
               </button>
             </div>
 
+            <div class="sub-head">{am.annotChannels()}</div>
+            {#each CHANNEL_KEYS as key (key)}
+              {@const channel = channelValue(panel, key)}
+              <div class="channel-row">
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    checked={channel.show}
+                    onchange={(event) =>
+                      withCommit(() => {
+                        channel.show = checkedFrom(event);
+                      })}
+                  />
+                  {CHANNEL_LABELS[key]}
+                </label>
+                <input
+                  class="channel-gain"
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.05"
+                  value={channel.gain}
+                  oninput={(event) => {
+                    channel.gain = clamp(numberFrom(event), 0, 2);
+                  }}
+                  onpointerdown={beginGesture}
+                  onpointerup={endGesture}
+                  onfocus={beginGesture}
+                  onblur={endGesture}
+                  aria-label={`${am.annotChannelGain()} ${CHANNEL_LABELS[key]}`}
+                />
+                <output>{channel.gain.toFixed(2)}</output>
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    checked={channel.invert}
+                    onchange={(event) =>
+                      withCommit(() => {
+                        channel.invert = checkedFrom(event);
+                      })}
+                  />
+                  {am.annotChannelInvert()}
+                </label>
+              </div>
+            {/each}
+            <div class="btn-row">
+              <button class="pix-btn tiny-btn" onclick={() => resetChannels(panel)}>
+                {am.annotChannelsReset()}
+              </button>
+            </div>
+            <div class="pix-dim tiny">{am.annotChannelsHint()}</div>
+
             <div class="sub-head">{m.annotCalibration()}</div>
             <div class="cal-state" class:ok={!!panel.calibration}>
               {calibrationText(panel)}
@@ -2134,6 +2510,9 @@
             </button>
             <button class="pix-btn tiny-btn" onclick={() => setTool('panelbar')}>
               <ScanLine size={10} /> {m.annotToolPanelbar()}
+            </button>
+            <button class="pix-btn tiny-btn" onclick={() => setTool('profile')}>
+              <Activity size={10} /> {am.annotToolProfile()}
             </button>
           </div>
 
@@ -2542,6 +2921,55 @@
                   />
                   {m.annotShowLabel()}
                 </label>
+              {:else if ann.kind === 'profile'}
+                <div class="grid2">
+                  <label class="field">
+                    <span>{am.annotProfileSamples()}</span>
+                    <input
+                      class="pix-input"
+                      type="number"
+                      min={PROFILE_MIN_SAMPLES}
+                      max={PROFILE_MAX_SAMPLES}
+                      step="8"
+                      value={ann.samples}
+                      onchange={(event) =>
+                        applyNumber(event, (value) =>
+                          (ann.samples = Math.round(clamp(value, PROFILE_MIN_SAMPLES, PROFILE_MAX_SAMPLES))))}
+                    />
+                  </label>
+                  <div class="field">
+                    <span>{am.annotProfileLength()} ({m.annotMm()})</span>
+                    <div class="readout">
+                      {(Math.hypot(ann.x2 - ann.x1, ann.y2 - ann.y1) / PX_PER_MM).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+                <div class="sub-head">{am.annotProfileTitle()}</div>
+                {#if profileBusy}
+                  <div class="pix-dim tiny">{am.annotProfileBusy()}</div>
+                {:else if selectedProfile}
+                  <svg
+                    class="profile-plot"
+                    viewBox="0 0 160 52"
+                    preserveAspectRatio="none"
+                    role="img"
+                    aria-label={am.annotProfileTitle()}
+                  >
+                    <rect x="0" y="0" width="160" height="52" fill="var(--pix-bg)" />
+                    <path
+                      d={selectedProfilePath(selectedProfile)}
+                      fill="none"
+                      stroke={ann.color}
+                      stroke-width="1.2"
+                    />
+                  </svg>
+                  <div class="pix-dim tiny">
+                    {am.annotProfileMinMeanMax()}: {selectedProfileStats(selectedProfile)}
+                  </div>
+                  <div class="pix-dim tiny">{am.annotProfileHint()}</div>
+                {:else}
+                  <div class="pix-dim tiny">{am.annotProfileEmpty()}</div>
+                {/if}
               {:else if ann.kind === 'panelbar'}
                 <label class="field">
                   <span>{m.annotCalibrationPanel()}</span>
@@ -2710,6 +3138,16 @@
             <button class="pix-btn" disabled={busy !== 'idle'} onclick={exportProjectJson}>
               <Save size={11} /> {m.annotExportJson()}
             </button>
+            <button
+              class="pix-btn"
+              disabled={busy !== 'idle' || !annotateProfileAnnotations(project).length}
+              onclick={exportProfilesCsv}
+            >
+              <Activity size={11} /> {am.annotProfileCsv()}
+            </button>
+            <button class="pix-btn accent" disabled={busy !== 'idle' || !project.panels.length} onclick={exportBundle}>
+              <Package size={11} /> {am.annotBundleExport()}
+            </button>
             <button class="pix-btn" disabled={busy !== 'idle'} onclick={() => jsonInput?.click()}>
               <FolderOpen size={11} /> {m.annotImportProject()}
             </button>
@@ -2725,7 +3163,9 @@
               <span class="pix-dim tiny">{m.annotAutosaveOn()}</span>
             {/if}
           </div>
-          {#if busy !== 'idle'}
+          {#if busy === 'bundle'}
+            <div class="pix-dim tiny">{am.annotBundleBusy()}</div>
+          {:else if busy !== 'idle'}
             <div class="pix-dim tiny">{m.annotExporting()}</div>
           {/if}
         </div>
@@ -3045,6 +3485,23 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 5px 7px;
+  }
+  .channel-row {
+    display: grid;
+    grid-template-columns: auto 1fr 34px auto;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    color: var(--pix-fg-dim);
+  }
+  .channel-row .check { white-space: nowrap; }
+  .channel-gain { width: 100%; min-width: 40px; accent-color: var(--pix-cyan); }
+  .channel-row output { text-align: right; font-family: var(--pix-mono, monospace); color: var(--pix-fg); }
+  .profile-plot {
+    width: 100%;
+    height: 58px;
+    border: 1px solid var(--pix-border);
+    background: var(--pix-bg);
   }
   .color-field { justify-content: flex-end; }
   .pix-color {

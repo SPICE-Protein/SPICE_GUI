@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "注目: {group}",
   "treeSupportFiltered": "しきい値未満の支持率は非表示です",
   "treeFileTooLarge": "ファイルが大きすぎます（上限 20 MB）",
-  "treeReadFailed": "ファイルを読み取れません"
+  "treeReadFailed": "ファイルを読み取れません",
+  "projectToolCaptureBtn": "ツールから取り込む",
+  "projectToolSelectLabel": "ツール",
+  "projectDocInsertJournal": "ジャーナルに挿入",
+  "projectDocInsertedToast": "現在のジャーナルページに図を挿入しました",
+  "projectDocNoPreview": "この文書には挿入できるプレビューがありません"
 }

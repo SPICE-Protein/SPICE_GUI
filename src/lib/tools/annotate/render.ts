@@ -110,6 +110,34 @@ function drawArrow(ctx: CanvasRenderingContext2D, ann: Extract<Annotation, { kin
   ctx.restore();
 }
 
+function drawProfile(
+  ctx: CanvasRenderingContext2D,
+  ann: Extract<Annotation, { kind: 'profile' }>,
+) {
+  const width = lineWidth(ann.strokeWidthPt);
+  ctx.save();
+  ctx.strokeStyle = ann.color;
+  ctx.fillStyle = ann.color;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([width * 3, width * 2]);
+  ctx.beginPath();
+  ctx.moveTo(ann.x1, ann.y1);
+  ctx.lineTo(ann.x2, ann.y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const radius = Math.max(1.5, width * 1.4);
+  for (const [x, y] of [
+    [ann.x1, ann.y1],
+    [ann.x2, ann.y2],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawBar(
   ctx: CanvasRenderingContext2D,
   ann: Extract<Annotation, { kind: 'scalebar' | 'panelbar' }>,
@@ -182,7 +210,50 @@ function drawAnnotation(
     case 'panelbar':
       drawBar(ctx, ann, geom, family);
       break;
+    case 'profile':
+      drawProfile(ctx, ann);
+      break;
   }
+}
+
+/**
+ * Draw only the composite background and panel pixels. Used for intensity
+ * sampling so measurement lines, labels and other annotations never perturb
+ * the profile they measure.
+ */
+export function drawCompositeFigure(
+  ctx: CanvasRenderingContext2D,
+  project: AnnotateProject,
+  geom: FigureGeometry,
+  resolve: ArtResolver,
+) {
+  ctx.save();
+  ctx.fillStyle = project.layout.background;
+  ctx.fillRect(0, 0, geom.width, geom.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  for (const frame of geom.frames) {
+    const art = resolve(frame.panel);
+    if (art) drawPanelImage(ctx, frame, art);
+  }
+  ctx.restore();
+}
+
+/** Rasterise the panel composite on its own for line-profile sampling. */
+export function renderCompositeFigure(
+  project: AnnotateProject,
+  geom: FigureGeometry,
+  resolve: ArtResolver,
+  scale = 1,
+): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(geom.width * scale));
+  canvas.height = Math.max(1, Math.round(geom.height * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D is unavailable');
+  if (scale !== 1) ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  drawCompositeFigure(ctx, project, geom, resolve);
+  return canvas;
 }
 
 export function drawFigure(
@@ -269,6 +340,7 @@ export function drawSelection(
       const push = (x: number, y: number) => handles.push({ x, y });
       switch (ann.kind) {
         case 'arrow':
+        case 'profile':
           push(ann.x1, ann.y1);
           push(ann.x2, ann.y2);
           break;
@@ -567,6 +639,29 @@ function svgAnnotation(
           })}>${esc(line)}</text>`,
         );
       });
+      break;
+    }
+    case 'profile': {
+      const width = lineWidth(ann.strokeWidthPt);
+      out.push(
+        `<line ${svgAttrs({
+          x1: svgNumber(ann.x1),
+          y1: svgNumber(ann.y1),
+          x2: svgNumber(ann.x2),
+          y2: svgNumber(ann.y2),
+          stroke: ann.color,
+          'stroke-width': width,
+          'stroke-dasharray': `${svgNumber(width * 3)} ${svgNumber(width * 2)}`,
+          'stroke-linecap': 'round',
+        })}/>`,
+      );
+      const radius = Math.max(1.5, width * 1.4);
+      for (const [x, y] of [
+        [ann.x1, ann.y1],
+        [ann.x2, ann.y2],
+      ]) {
+        out.push(`<circle ${svgAttrs({ cx: svgNumber(x), cy: svgNumber(y), r: radius, fill: ann.color })}/>`);
+      }
       break;
     }
     case 'scalebar':

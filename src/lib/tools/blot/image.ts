@@ -4,6 +4,14 @@
 // not biased by contrast or gamma.
 
 import type { BlotCrop, BlotProject } from './types';
+import {
+  bytesToDataUrl,
+  canvasToDataUrl,
+  createCanvas,
+  loadRasterImage,
+  rasterHeight,
+  rasterWidth,
+} from '$lib/tools/shared/canvas';
 
 export interface DecodedImage {
   name: string;
@@ -25,32 +33,16 @@ export interface ProcessedImage {
 
 const imageCache = new Map<string, HTMLImageElement>();
 
-export function loadImageElement(src: string): Promise<HTMLImageElement> {
+export async function loadImageElement(src: string): Promise<HTMLImageElement> {
   const cached = imageCache.get(src);
-  if (cached && cached.complete) return Promise.resolve(cached);
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      imageCache.set(src, img);
-      resolve(img);
-    };
-    img.onerror = () => reject(new Error('Image decode failed'));
-    img.src = src;
-  });
+  if (cached && (cached.complete || !('naturalWidth' in cached))) return cached;
+  const img = await loadRasterImage(src);
+  imageCache.set(src, img);
+  return img;
 }
 
 function isTiff(file: File): boolean {
   return /\.tiff?$/i.test(file.name) || file.type === 'image/tiff';
-}
-
-function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('Image decode failed'));
-    reader.readAsDataURL(blob);
-  });
 }
 
 /** Decode PNG/JPEG/WebP directly and TIFF through UTIF (8/16-bit scientific
@@ -67,8 +59,8 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
     return {
       name: file.name,
       dataUrl,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
+      width: rasterWidth(img),
+      height: rasterHeight(img),
       mime: file.type || 'image/png',
     };
   }
@@ -88,16 +80,14 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
   const rgba = UTIF.toRGBA8(ifd);
   const width = Math.max(1, ifd.width);
   const height = Math.max(1, ifd.height);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d')!;
   const out = ctx.createImageData(width, height);
   out.data.set(rgba);
   ctx.putImageData(out, 0, 0);
   return {
     name: file.name,
-    dataUrl: canvas.toDataURL('image/png'),
+    dataUrl: await canvasToDataUrl(canvas),
     width,
     height,
     mime: 'image/tiff',
@@ -182,14 +172,12 @@ export function renderProcessed(
   project: BlotProject,
   img: HTMLImageElement,
 ): ProcessedImage {
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
+  const w = rasterWidth(img);
+  const h = rasterHeight(img);
   const orient = ((project.orient % 4) + 4) % 4;
   const size = orientedSize(w, h, orient, project.rotation);
   const rad = (project.rotation * Math.PI) / 180;
-  const base = document.createElement('canvas');
-  base.width = size.width;
-  base.height = size.height;
+  const base = createCanvas(size.width, size.height);
   const bctx = base.getContext('2d', { willReadFrequently: true })!;
   // Rotation corners are filled with white so a normal membrane scan keeps a
   // light surround; the display inversion then turns them dark consistently.
@@ -205,9 +193,7 @@ export function renderProcessed(
   const rawData = bctx.getImageData(0, 0, base.width, base.height);
   const rawGray = toGrayPlane(rawData);
 
-  const display = document.createElement('canvas');
-  display.width = base.width;
-  display.height = base.height;
+  const display = createCanvas(base.width, base.height);
   const dctx = display.getContext('2d', { willReadFrequently: true })!;
   dctx.putImageData(rawData, 0, 0);
   const displayData = dctx.getImageData(0, 0, display.width, display.height);
@@ -280,9 +266,7 @@ export function cropCanvas(
   const sy = Math.round(crop.top * source.height);
   const sw = Math.max(8, Math.round((1 - crop.left - crop.right) * source.width));
   const sh = Math.max(8, Math.round((1 - crop.top - crop.bottom) * source.height));
-  const out = document.createElement('canvas');
-  out.width = sw;
-  out.height = sh;
+  const out = createCanvas(sw, sh);
   out.getContext('2d')!.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
   return out;
 }

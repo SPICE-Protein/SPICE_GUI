@@ -4,6 +4,7 @@
 
 import { groupNames } from './detect';
 import { globalBackground } from './image';
+import { ci95HalfWidth, mean, sampleSd, sem, welchTTest } from './stats';
 import type { BlotBand, BlotLane, BlotProject } from './types';
 import { clamp } from './types';
 
@@ -29,6 +30,10 @@ export interface BandMeasurement {
   groupMean: number;
   groupSd: number;
   groupSem: number;
+  /** Half-width of the 95% confidence interval of the group mean. */
+  groupCi95: number;
+  /** Two-sided Welch t-test p value versus the control group; null for control. */
+  groupP: number | null;
   groupN: number;
 }
 
@@ -38,6 +43,10 @@ export interface GroupStat {
   mean: number;
   sd: number;
   sem: number;
+  /** Half-width of the 95% confidence interval of the mean. */
+  ci95: number;
+  /** Two-sided Welch t-test p value versus the control group; null for control. */
+  pValue: number | null;
   values: number[];
   laneCount: number;
 }
@@ -188,23 +197,10 @@ export function measureBand(
     groupMean: 0,
     groupSd: 0,
     groupSem: 0,
+    groupCi95: 0,
+    groupP: null,
     groupN: 0,
   };
-}
-
-function mean(values: number[]): number {
-  if (!values.length) return 0;
-  let sum = 0;
-  for (const v of values) sum += v;
-  return sum / values.length;
-}
-
-function sampleSd(values: number[]): number {
-  if (values.length < 2) return 0;
-  const m = mean(values);
-  let sq = 0;
-  for (const v of values) sq += (v - m) ** 2;
-  return Math.sqrt(sq / (values.length - 1));
 }
 
 /** Measure every band, apply the selected normalisation and fold change, then
@@ -268,12 +264,18 @@ export function quantify(project: BlotProject, contextWithoutBg: Omit<MeasureCon
     const m = mean(values);
     const sd = sampleSd(values);
     const laneCount = project.lanes.filter((lane) => lane.group.trim() === name && !lane.excluded).length;
+    const test =
+      name !== controlGroup && controlGroup && controlValues.length >= 2 && values.length >= 2
+        ? welchTTest(values, controlValues)
+        : null;
     groups.push({
       name,
       n: values.length,
       mean: m,
       sd,
-      sem: values.length ? sd / Math.sqrt(values.length) : 0,
+      sem: sem(values),
+      ci95: ci95HalfWidth(values),
+      pValue: test?.p ?? null,
       values,
       laneCount,
     });
@@ -284,6 +286,8 @@ export function quantify(project: BlotProject, contextWithoutBg: Omit<MeasureCon
     row.groupMean = group?.mean ?? 0;
     row.groupSd = group?.sd ?? 0;
     row.groupSem = group?.sem ?? 0;
+    row.groupCi95 = group?.ci95 ?? 0;
+    row.groupP = group?.pValue ?? null;
     row.groupN = group?.n ?? 0;
   }
 
@@ -319,6 +323,5 @@ export function groupMetricStats(
 ): { mean: number; sem: number; values: number[] } {
   const values = groupMetricValues(group, rows, metric);
   const m = mean(values);
-  const sd = sampleSd(values);
-  return { mean: m, sem: values.length ? sd / Math.sqrt(values.length) : 0, values };
+  return { mean: m, sem: sem(values), values };
 }

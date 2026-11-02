@@ -121,15 +121,16 @@ Built with SvelteKit (Svelte 5), Tauri v2, Mol\*, and a pixel-art UI theme. Full
 
 ### Project hub — `/project`
 
-- One `.spiceproj` file holds everything: gene and protein documents are **embedded in full** (not referenced), alongside a multi-page Markdown journal with categories and tags.
+- One `.spiceproj` file holds everything: gene, protein, and all seven bench-tool documents are **embedded in full** (not referenced), alongside a multi-page Markdown journal with categories and tags.
 - On disk this is the SPJB private binary container — roughly 4× smaller than gzip-JSON, with byte-identical restore of float32 payloads; older plain-JSON generations still import.
 - Attached files (CSVs, images, PDFs, anything ≤ 20 MiB) live inside the project with in-app previews and save-as.
-- Capture-and-carry handoff: workspaces snapshot into the project or open embedded docs with a live write-back banner; project registry and session resume survive restarts; dirty LED and Ctrl+S throughout.
+- Tool documents carry a compact preview and one-line result summary; any preview can be inserted into the current journal page as a captioned Markdown image.
+- Capture-and-carry handoff: workspaces and bench tools snapshot into the project or open embedded docs with a live write-back banner; project registry and session resume survive restarts; dirty LED and Ctrl+S throughout.
 - **Presenter mode** — split any journal page into slides by headings and `---` rules; quote blocks become speaker notes. Full grammar: task lists, tables with alignment, footnotes, highlights, sub/superscripts, presenter-only comments. Audience and presenter views, next-slide preview, elapsed timer, keyboard navigation, fullscreen.
 
 ### Bench tools — `/tools`
 
-Seven standalone utilities, each with its own editor, local autosave, re-openable JSON project, and publication-ready export. Images never leave the machine.
+Seven standalone utilities, each with its own editor, local autosave, re-openable JSON project, and publication-ready export. Images never leave the machine. Every tool is also a first-class SPICE_PROJECT document, can write a SHA-256-manifested reproducibility bundle (figure + data + project + parameters + methods), and shares one sample/plate vocabulary with the other tools.
 
 #### Gel figure — `/tools/gel`
 
@@ -139,6 +140,7 @@ Seven standalone utilities, each with its own editor, local autosave, re-openabl
 - Lane and band detection, with a marker-ladder library: fit the marker lane once, then propagate sizes to every sample lane from the calibration curve (R² reported).
 - Figure composer with lane names and angles, group headers, condition rows, arrows, region boxes, enlarged insets, brackets, side text, captions, and reusable style templates.
 - Pre-flight checks for clipping, effective dpi, font size, and ladder fit; exports PNG / TIFF / SVG / PPTX, the uncropped image, the original file, and a processing log.
+- Folder batch mode runs straighten, crop, gel-type inference, lane/band detection and optional ladder calibration over up to 60 images, then saves one ZIP with per-image figures, projects and summary CSV. The batch runs in a module worker, so the editor stays responsive.
 
 #### Western blot densitometry — `/tools/blot`
 
@@ -146,17 +148,18 @@ Seven standalone utilities, each with its own editor, local autosave, re-openabl
 
 - Automatic lane and band detection with a morphological baseline, then draggable ROIs and manual band/lane correction.
 - Four background models (ROI ring, lane median, global median, manual), loading-control or total-protein normalization, control groups, and fold change.
-- Saturation flags, per-band net volume, group mean / SD / SEM, and a full quantification table.
-- Annotated PNG and SVG figures, results CSV, and a project file that round-trips image, ROIs, and assignments.
+- Saturation flags, per-band net volume, group mean / SD / SEM, 95% confidence intervals, and Welch p values against the control group.
+- Annotated PNG and SVG figures, results CSV, a project file that round-trips image/ROIs/assignments, and a batch mode that quantifies up to 40 images into one ZIP. Batch processing runs in a module worker.
 
 #### qPCR analysis — `/tools/qpcr`
 
 ![qPCR analysis](images/tools-qpcr.png)
 
 - Paste or import CSV/TSV, map columns manually, and run in ΔΔCt or standard-curve mode with optional per-target efficiency correction.
-- Reference target, control group, and control sample selection; QC flags for missing Ct, high Ct, replicate SD, outliers, and duplicate wells, with outlier exclusion.
-- Standard-curve fit (slope, intercept, R², efficiency) with interpolated unknowns, ΔCt heatmap, group summaries, and per-replicate detail.
-- Results CSV, chart SVG/PNG at 300 dpi, and a project JSON.
+- Multiple reference targets with geometric-mean reference Ct, control group and control sample selection; QC flags for missing Ct, missing reference, high Ct, replicate SD, outliers, and duplicate wells.
+- Standard-curve fit (slope, intercept, R², efficiency) with interpolated unknowns, ΔCt heatmap, group summaries, Welch p values, and per-replicate detail.
+- Import a plate designer CSV/TSV to carry well, sample, group, and replicate identifiers into qPCR without retyping.
+- Results CSV, chart SVG/PNG at 300 dpi, a project JSON, and a reproducibility bundle.
 
 #### Plate layout designer — `/tools/plate`
 
@@ -165,7 +168,8 @@ Seven standalone utilities, each with its own editor, local autosave, re-openabl
 - Six formats from 6 to 384 wells; paste or import samples with groups, colours, and replicate counts.
 - Seeded layout generation with controls, blanks, reserved edge wells, contiguous row / column / block grouping, keep-group-together, and re-randomization.
 - Rule checks for duplicate names, unplaced samples, and well conflicts; inspect or paint individual wells, then correct the map by hand.
-- Plate-map CSV/TSV, SVG, 300 or 600 dpi PNG, and JSON project; autosaves the current layout.
+- Export the sample list as a portable `SPICE_SAMPLES` JSON/CSV sheet or import one back; export a qPCR-ready plate map with the `well,sample,group,type,replicate` header.
+- Plate-map CSV/TSV, SVG, 300 or 600 dpi PNG, JSON project, and a reproducible bundle; autosaves the current layout.
 
 #### Colony counter — `/tools/colony`
 
@@ -173,8 +177,9 @@ Seven standalone utilities, each with its own editor, local autosave, re-openabl
 
 - Import, rotate, crop, and adjust plate images, then segment with Otsu thresholding, blur, polarity selection, area / circularity filters, and touching-colony splitting.
 - Manual correction by adding, dragging, including, excluding, or deleting markers, with mask and numbering overlays.
-- Counts, included/excluded totals, mean/median area, mean intensity, and a colony-area histogram; CFU/mL from dilution factor and plated volume.
-- Annotated PNG, mask PNG, marker CSV, and a re-openable project.
+- Counts, included/excluded totals, mean/median area, mean intensity, and a colony-area histogram; CFU/mL from dilution factor and plated volume, with exact Poisson 95% intervals.
+- Optional blue/white classification from mean RGB and HSV hue, with manual overrides and per-class counts.
+- Batch mode segments up to 40 plate images into a ZIP; exports annotated PNG, mask PNG, marker CSV, statistics CSV, and a re-openable project. Processing runs in a module worker with a main-thread fallback for older WebViews.
 
 #### Image annotator — `/tools/annotate`
 
@@ -182,8 +187,9 @@ Seven standalone utilities, each with its own editor, local autosave, re-openabl
 
 - Compose multi-panel figures from imported images, with per-panel crop, order, duplicate, and image adjustment.
 - Figure layout controls: columns, row/column flow, gap, margin, physical width in mm, panel labels (A/B/C, a/b/c, 1/2/3), font, size, colour, and position.
-- Vector annotations — arrows, rectangles, ellipses, text, calibrated or fixed scale bars, and panel bars — each editable by geometry, colour, fill, and stroke.
-- Autosave plus PNG, SVG, and project JSON export.
+- Vector annotations — arrows, rectangles, ellipses, text, calibrated or fixed scale bars, panel bars, and intensity line profiles — each editable by geometry, colour, fill, and stroke.
+- Per-panel RGB channel visibility, gain, invert and merged composite rendering; profile plots export as CSV.
+- Autosave plus PNG, SVG, project JSON, and a reproducibility bundle.
 
 #### Phylogenetic tree — `/tools/tree`
 
@@ -192,7 +198,8 @@ Seven standalone utilities, each with its own editor, local autosave, re-openabl
 - Newick import with quoted labels, comments, branch lengths, and support values; phylogram, cladogram, and circular layouts with support thresholds, node markers, scale bar, and dark/light themes.
 - Beautify tools: ladderize either direction, sort leaves alphabetically or by group, midpoint rooting, and interactive collapse / expand / rotate clades.
 - Leaf search and path-to-root highlighting, plus CSV/TSV metadata joins with group colours, palettes, and legend; one group can be focused.
-- Export SVG, 300 or 600 dpi PNG, edited or original Newick, and project JSON; session autosave.
+- Bootstrap/support histogram with threshold-aware shown/filtered counts, and Robinson-Foulds comparison against a second Newick tree.
+- Export SVG, 300 or 600 dpi PNG, edited or original Newick, project JSON, and a reproducibility bundle; session autosave.
 
 ### SPD integration
 
@@ -252,6 +259,7 @@ pnpm tauri build  # bundles for the host platform
 
 ```bash
 pnpm check                    # svelte-kit sync + svelte-check (0 errors required)
+pnpm test                     # Vitest algorithm and data-interchange suite
 pnpm build                    # static frontend build
 pnpm i18n                     # recompile Paraglide catalogs after editing messages/*.json
 cd src-tauri && cargo check   # Rust backend
@@ -266,15 +274,17 @@ src/routes/           six areas (welcome, protein, gene, project, tools, setting
 src/lib/backend/      typed invoke wrappers, browser fallbacks, mmCIF export, demo mode
 src/lib/gene/         cloning UI components (maps, primers, gels, CRISPR, QC)
 src/lib/project/      SPICE_PROJECT store, .spiceproj container, Presenter mode
-src/lib/tools/        gel, blot, qPCR, plate, colony, annotate, and tree editors
+src/lib/tools/        seven bench editors plus shared project/batch/sample helpers
+src/lib/repro/        ZIP writer, SHA-256 manifest, reproducible bundle builder
 src/lib/spd/          SPD client (transport switch, publish chain, graph DSL)
 src/lib/viewer/       Mol* wrapper and view settings
 src/lib/identity/     ORCID profile and ELN signing identity
 src/lib/paraglide/    compiled i18n catalogs (generated — edit project.inlang instead)
 project.inlang/       message source and plugin config
+tests/                Vitest suites for scientific math and interop formats
 scripts/              logo sync, Android landscape patch, UniVec fetch
 src-tauri/            Rust backend (see architecture), Tauri config, capabilities
-.github/workflows/    multi-platform CI with optional signing
+.github/workflows/    algorithm tests + multi-platform CI with optional signing
 ```
 
 ## Acknowledgments

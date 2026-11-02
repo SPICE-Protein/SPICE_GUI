@@ -55,7 +55,12 @@ export interface QpcrSettings {
   defaultEfficiencyPct: number;
   quantityIsLog10: boolean;
   showHeatmap: boolean;
+  /** Legacy single reference; kept in sync with the first reference target. */
   referenceTarget: string;
+  /** One or more reference targets; their Ct geometric mean is the reference.
+   *  Optional so older projects and callers that only set referenceTarget stay
+   *  valid; sanitizeSettings migrates them. */
+  referenceTargets?: string[];
   controlGroup: string;
   controlSample: string;
 }
@@ -98,6 +103,7 @@ export function defaultSettings(): QpcrSettings {
     quantityIsLog10: false,
     showHeatmap: false,
     referenceTarget: '',
+    referenceTargets: [],
     controlGroup: '',
     controlSample: '',
   };
@@ -110,6 +116,18 @@ export function sanitizeSettings(settings: QpcrSettings): QpcrSettings {
     return Math.min(max, Math.max(min, n));
   };
   const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+  const legacy = text(settings.referenceTarget).trim();
+  const rawList = (settings as Partial<QpcrSettings> & { referenceTargets?: unknown })
+    .referenceTargets;
+  const list = Array.isArray(rawList)
+    ? rawList
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+    : [];
+  const unique: string[] = [];
+  for (const value of list.length ? list : legacy ? [legacy] : []) {
+    if (!unique.some((item) => item.toLowerCase() === value.toLowerCase())) unique.push(value);
+  }
   return {
     highCt: number(settings.highCt, 10, 45, 35),
     sdLimit: number(settings.sdLimit, 0, 5, 0.5),
@@ -119,7 +137,8 @@ export function sanitizeSettings(settings: QpcrSettings): QpcrSettings {
     defaultEfficiencyPct: number(settings.defaultEfficiencyPct, 1, 200, 100),
     quantityIsLog10: settings.quantityIsLog10 === true,
     showHeatmap: settings.showHeatmap === true,
-    referenceTarget: text(settings.referenceTarget),
+    referenceTarget: unique[0] ?? legacy,
+    referenceTargets: unique,
     controlGroup: text(settings.controlGroup),
     controlSample: text(settings.controlSample),
   };

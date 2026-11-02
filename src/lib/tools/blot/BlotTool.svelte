@@ -7,10 +7,17 @@
   import * as m from '$lib/paraglide/messages.js';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { backend } from '$lib/backend/api';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import { ensureProjectLoaded, takeToolHandoff } from '$lib/tools/shared/projectBridge';
+  import { imageFiles } from '$lib/tools/shared/batch';
+  import { runBatchJob } from '$lib/tools/shared/batchWorker';
+  import { saveZip } from '$lib/tools/shared/zipExport';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
   import {
     Upload, Download, Save, FolderOpen, Undo2, Redo2, Trash2, Plus, RotateCcw,
     RotateCw, Wand2, Crosshair, Crop, Layers, MousePointer2, Eye, EyeOff,
     RefreshCw, FileText, Eraser, ZoomIn, ZoomOut, ScanLine, MousePointerClick,
+    Archive, Images,
   } from 'lucide-svelte';
   import {
     decodeImageFile, loadImageElement, renderProcessed, rotateCoordinates,
@@ -23,12 +30,17 @@
   import { quantify } from './quant';
   import {
     annotatedCanvas, annotatedPng, chartSvg, figureSvg, resultsCsv,
+    type CsvLabels,
   } from './render';
   import { loadSnapshot, saveSnapshot, clearSnapshot } from './storage';
   import {
     emptyProject, newId, snapshotProject, restoreSnapshot, sanitizeProject,
     clamp, type BlotProject, type BlotLane, type BlotBand,
   } from './types';
+  import { sanitizeBlotProject, blotDocSummary, blotDocPreview } from './projectDoc';
+  import { saveBlotReproBundle } from './repro';
+  import { buildBlotBatch, MAX_BLOT_BATCH_IMAGES, type BlotBatchBuild } from './batch';
+  import { tm } from './messages';
 
   // ------------------------------------------------------------------ state
 
@@ -38,6 +50,7 @@
 
   let imageInput = $state<HTMLInputElement | null>(null);
   let projectInput = $state<HTMLInputElement | null>(null);
+  let batchInput = $state<HTMLInputElement | null>(null);
   let stageEl = $state<HTMLDivElement | null>(null);
   let stageCanvas = $state<HTMLCanvasElement | null>(null);
   let stageOverlay = $state<HTMLCanvasElement | null>(null);
@@ -52,10 +65,19 @@
   let canRedo = $state(false);
   let dragCropActive = $state(false);
 
+  let handoffLoading = $state(false);
+  let batchRunning = $state(false);
+  let batchTotal = $state(0);
+  let batchDone = $state(0);
+  let batchName = $state('');
+  let batchOk = $state(0);
+  let batchFailed = $state(0);
+
   let history: string[] = [];
   let future: string[] = [];
   let lastCheckpoint = 0;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let commitTimer: ReturnType<typeof setTimeout> | null = null;
   let quotaWarned = false;
   let renderRaf = 0;
   let figureTimer: ReturnType<typeof setTimeout> | null = null;
@@ -132,13 +154,19 @@
   // ------------------------------------------------------------- lifecycle
 
   onMount(() => {
-    if (!project.title) project.title = m.blotDefaultTitle();
-    const snap = loadSnapshot();
-    if (snap) {
-      project = snap;
+    ensureProjectLoaded();
+    const handoff = takeToolHandoff('blot');
+    if (handoff?.type === 'open') {
+      void openHandoffProject(handoff.payload);
+    } else {
       if (!project.title) project.title = m.blotDefaultTitle();
-      selectedLaneId = project.lanes[0]?.id ?? null;
-      void loadProjectImage();
+      const snap = loadSnapshot();
+      if (snap) {
+        project = snap;
+        if (!project.title) project.title = m.blotDefaultTitle();
+        selectedLaneId = project.lanes[0]?.id ?? null;
+        void loadProjectImage();
+      }
     }
     const observer = new ResizeObserver(() => drawStage());
     if (stageEl) observer.observe(stageEl);
@@ -148,9 +176,55 @@
       window.removeEventListener('keydown', onKeydown);
       if (persistTimer) clearTimeout(persistTimer);
       if (figureTimer) clearTimeout(figureTimer);
+      if (commitTimer) clearTimeout(commitTimer);
       if (renderRaf) cancelAnimationFrame(renderRaf);
     };
   });
+
+  // Write the live editor state back into the active project document. The
+  // guard keeps the effect from committing a half-loaded handoff payload.
+  $effect(() => {
+    const tracked = snapshotProject(project);
+    const imageDataUrl = project.imageDataUrl;
+    if (handoffLoading) return;
+    if (!projectStore.hasOpenProject || projectStore.activeDocKind !== 'blot') return;
+    if (commitTimer) clearTimeout(commitTimer);
+    commitTimer = setTimeout(() => {
+      if (projectStore.hasOpenProject && projectStore.activeDocKind === 'blot') {
+        const payload = {
+          ...(JSON.parse(tracked) as Omit<BlotProject, 'imageDataUrl'>),
+          imageDataUrl,
+        } as BlotProject;
+        projectStore.commitDoc('blot', payload);
+      }
+    }, 350);
+  });
+
+  async function openHandoffProject(payload: unknown) {
+    handoffLoading = true;
+    try {
+      const parsed = sanitizeBlotProject(payload);
+      if (!parsed) {
+        toast(false, m.blotProjectInvalid());
+        return;
+      }
+      project = parsed;
+      if (!project.title) project.title = m.blotDefaultTitle();
+      imageEl = null;
+      processed = null;
+      selectedLaneId = project.lanes[0]?.id ?? null;
+      selectedBandId = null;
+      history = [];
+      future = [];
+      canUndo = false;
+      canRedo = false;
+      await loadProjectImage();
+      syncNormalization();
+      schedulePersist();
+    } finally {
+      handoffLoading = false;
+    }
+  }
 
   // Rebuild the figure preview after edits settle; embedding the blot as a data
   // URL is the expensive part, so the work is debounced.
@@ -1150,12 +1224,8 @@
     await saveText(`${projectBase()}.blot.json`, JSON.stringify(project, null, 2));
   }
 
-  async function exportCsv() {
-    if (!quant || !quant.rows.length) {
-      toast(false, m.blotNoResults());
-      return;
-    }
-    const csv = resultsCsv(project, quant, {
+  function blotCsvLabels(): CsvLabels {
+    return {
       lane: m.blotColumnLane(),
       band: m.blotColumnBand(),
       sample: m.blotColumnSample(),
@@ -1171,9 +1241,19 @@
       groupMean: m.blotColumnGroupMean(),
       groupSd: m.blotColumnSd(),
       groupSem: m.blotColumnSem(),
+      groupCi95: tm.blotColumnCi95(),
+      groupP: tm.blotColumnP(),
       groupN: m.blotColumnN(),
       metric: m.blotChartMetric(),
-    });
+    };
+  }
+
+  async function exportCsv() {
+    if (!quant || !quant.rows.length) {
+      toast(false, m.blotNoResults());
+      return;
+    }
+    const csv = resultsCsv(project, quant, blotCsvLabels());
     await saveText(`${projectBase()}_densitometry.csv`, csv);
   }
 
@@ -1217,6 +1297,112 @@
     await saveText(`${projectBase()}_figure.svg`, svg);
   }
 
+  function figureOptions() {
+    return {
+      title: project.title,
+      chartTitle: project.chartTitle,
+      metricLabel,
+      emptyLabel: m.blotNoResults(),
+      nLabel: m.blotColumnN(),
+      noGroupLabel: m.blotNoGroup(),
+      footer: m.blotFigureFooter(),
+    };
+  }
+
+  async function exportReproBundle() {
+    if (!processed || !quant || !quant.rows.length) {
+      toast(false, tm.blotReproNoData());
+      return;
+    }
+    busy = tm.blotReproBusy();
+    try {
+      const result = await saveBlotReproBundle({
+        project,
+        processed,
+        quant,
+        title: project.title || m.blotDefaultTitle(),
+        csvLabels: blotCsvLabels(),
+        figure: figureOptions(),
+      });
+      if (result.ok) toast(true, tm.blotReproSaved());
+      else if (!result.canceled) toast(false, result.error || tm.blotReproFailed());
+    } catch (error) {
+      toast(false, error instanceof Error ? error.message : tm.blotReproFailed());
+    } finally {
+      busy = '';
+    }
+  }
+
+  async function onBatchPick(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const picked = imageFiles(input.files);
+    input.value = '';
+    if (!picked.length) {
+      toast(false, tm.blotBatchEmpty());
+      return;
+    }
+    if (picked.length > MAX_BLOT_BATCH_IMAGES) {
+      pushToast('warn', tm.blotBatchTitle(), tm.blotBatchCapped({ n: MAX_BLOT_BATCH_IMAGES }));
+    }
+    await runBatch(picked.slice(0, MAX_BLOT_BATCH_IMAGES));
+  }
+
+  async function runBatch(files: File[]) {
+    if (batchRunning) return;
+    batchRunning = true;
+    batchTotal = files.length;
+    batchDone = 0;
+    batchName = '';
+    batchOk = 0;
+    batchFailed = 0;
+    try {
+      const group = defaultGroup();
+      const labels = blotCsvLabels();
+      const report = (done: number, total: number, name: string) => {
+        batchDone = done;
+        batchTotal = total;
+        batchName = name;
+      };
+      const built = await runBatchJob<BlotBatchBuild>({
+        createWorker: () => new Worker(new URL('./batch.worker.ts', import.meta.url), { type: 'module' }),
+        files,
+        payload: { defaultGroup: group, csvLabels: labels },
+        onProgress: (p) => report(p.done, p.total, p.name),
+        fallback: () =>
+          buildBlotBatch(files, {
+            defaultGroup: group,
+            csvLabels: labels,
+            onProgress: report,
+          }),
+      });
+      batchOk = built.processed;
+      batchFailed = built.failed;
+      if (!built.images) {
+        toast(false, tm.blotBatchEmpty());
+        return;
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      const saved = await saveZip(`blot-batch-${stamp}.zip`, built.entries);
+      if (saved.ok) {
+        toast(true, tm.blotBatchDone({ ok: built.processed, failed: built.failed }));
+      } else {
+        toast(false, saved.error || tm.blotBatchFailed());
+      }
+    } catch (error) {
+      toast(false, error instanceof Error ? error.message : tm.blotBatchFailed());
+    } finally {
+      batchRunning = false;
+    }
+  }
+
+  function docName(): string {
+    return (
+      project.title.trim() ||
+      project.imageName.replace(/\.[^.]+$/, '').trim() ||
+      m.blotDefaultTitle()
+    );
+  }
+
   function resetAll() {
     if (typeof window !== 'undefined' && !window.confirm(m.blotResetConfirm())) return;
     history = [];
@@ -1241,7 +1427,21 @@
     if (!Number.isFinite(value)) return '0';
     return value.toFixed(digits);
   }
+
+  function showP(value: number | null): string {
+    if (value === null || !Number.isFinite(value)) return '—';
+    if (value > 0 && value < 0.0001) return value.toExponential(2);
+    return value.toFixed(4);
+  }
 </script>
+
+<ToolProjectBar
+  kind="blot"
+  getPayload={() => JSON.parse(JSON.stringify(project)) as BlotProject}
+  getName={docName}
+  getPreview={() => blotDocPreview(project, processed)}
+  getSummary={() => blotDocSummary(project)}
+/>
 
 <div
   class="blot-page"
@@ -1256,6 +1456,14 @@
     accept="image/png,image/jpeg,image/webp,image/tiff,.tif,.tiff"
     style="display:none"
     onchange={onPickImage}
+  />
+  <input
+    bind:this={batchInput}
+    type="file"
+    multiple
+    accept="image/png,image/jpeg,image/webp,image/tiff,.tif,.tiff"
+    style="display:none"
+    onchange={onBatchPick}
   />
   <input
     bind:this={projectInput}
@@ -1275,6 +1483,14 @@
       onclick={() => autoDetect(true)}
     >
       <Wand2 size={12} /> {m.blotAutoDetect()}
+    </button>
+    <button
+      class="pix-btn"
+      disabled={batchRunning || !!busy}
+      onclick={() => batchInput?.click()}
+      title={tm.blotBatchHint({ n: MAX_BLOT_BATCH_IMAGES })}
+    >
+      <Images size={12} /> {tm.blotBatchButton()}
     </button>
     <button class="pix-btn" disabled={!canUndo} onclick={undo} title={m.blotUndo()}>
       <Undo2 size={12} />
@@ -1299,6 +1515,27 @@
 
   {#if busy}
     <div class="busy-line">{busy}</div>
+  {/if}
+  {#if batchRunning}
+    <div class="batch-progress">
+      <span class="batch-label">
+        {tm.blotBatchProgress({
+          done: batchDone,
+          total: batchTotal,
+          name: batchName || tm.blotBatchTitle(),
+        })}
+      </span>
+      <span class="batch-track">
+        <span
+          class="batch-fill"
+          style="width: {batchTotal ? Math.round((batchDone / batchTotal) * 100) : 0}%"
+        ></span>
+      </span>
+    </div>
+  {:else if batchOk + batchFailed > 0}
+    <div class="batch-summary">
+      {tm.blotBatchDone({ ok: batchOk, failed: batchFailed })}
+    </div>
   {/if}
 
   <div class="blot-body">
@@ -1694,6 +1931,13 @@
           <button class="pix-btn" disabled={!hasImage} onclick={exportFigureSvg}>
             <Download size={11} /> {m.blotExportSvg()}
           </button>
+          <button
+            class="pix-btn ok"
+            disabled={!quant?.rows.length || !!busy}
+            onclick={exportReproBundle}
+          >
+            <Archive size={11} /> {tm.blotReproButton()}
+          </button>
           <div class="btn-row">
             <button class="pix-btn small" disabled={!hasImage} onclick={saveProject}>
               <Save size={10} /> {m.blotSaveProject()}
@@ -1841,6 +2085,8 @@
                     <th>{m.blotColumnGroupMean()}</th>
                     <th>{m.blotColumnSd()}</th>
                     <th>{m.blotColumnSem()}</th>
+                    <th>{tm.blotColumnCi95()}</th>
+                    <th>{tm.blotColumnP()}</th>
                     <th>{m.blotColumnN()}</th>
                     <th>{m.blotColumnSat()}</th>
                     <th></th>
@@ -1878,6 +2124,8 @@
                       <td>{showValue(row.groupMean, 3)}</td>
                       <td>{showValue(row.groupSd, 3)}</td>
                       <td>{showValue(row.groupSem, 3)}</td>
+                      <td>{row.groupN >= 2 ? showValue(row.groupCi95, 3) : '—'}</td>
+                      <td>{showP(row.groupP)}</td>
                       <td>{row.groupN}</td>
                       <td>
                         {#if row.saturated}
@@ -1917,6 +2165,8 @@
                   <th>{m.blotColumnGroupMean()}</th>
                   <th>{m.blotColumnSd()}</th>
                   <th>{m.blotColumnSem()}</th>
+                  <th>{tm.blotGroupCi95()}</th>
+                  <th>{tm.blotColumnP()}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1927,10 +2177,13 @@
                     <td>{showValue(group.mean, 3)}</td>
                     <td>{showValue(group.sd, 3)}</td>
                     <td>{showValue(group.sem, 3)}</td>
+                    <td>{group.n >= 2 ? showValue(group.ci95, 3) : '—'}</td>
+                    <td>{showP(group.pValue)}</td>
                   </tr>
                 {/each}
               </tbody>
             </table>
+            <div class="hint-line">{tm.blotWelchHint()}</div>
           {/if}
         </div>
       {:else}
@@ -1990,6 +2243,16 @@
   .pix-btn.active { border-color: var(--pix-cyan); color: var(--pix-cyan); background: var(--pix-bg-2); }
   .spacer { flex: 1; }
   .busy-line { font-size: 9px; color: var(--pix-accent-2); padding: 0 4px; }
+  .batch-progress {
+    display: flex; align-items: center; gap: 8px; padding: 2px 4px;
+    font-size: 9px; color: var(--pix-cyan);
+  }
+  .batch-track {
+    flex: 1; max-width: 420px; height: 5px; background: var(--pix-bg-3);
+    border: 1px solid var(--pix-border); display: inline-block;
+  }
+  .batch-fill { display: block; height: 100%; background: var(--pix-cyan); }
+  .batch-summary { font-size: 8.5px; color: var(--pix-fg-dim); padding: 0 4px; }
 
   .blot-body { flex: 1; display: flex; gap: 8px; min-height: 0; }
   .blot-side {

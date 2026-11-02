@@ -50,6 +50,7 @@
     type PlateFormat,
     type PlateProjectFile,
     type PlateRules,
+    type SampleDraft,
     type SampleRow,
     type UnplacedSample,
     type WellAssignment
@@ -82,6 +83,22 @@
     serializePlateProject
   } from './storage';
   import { randomSeedValue } from './random';
+  import { normalizePlatePayload, plateProjectCounts, plateProjectName } from './projectDoc';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import {
+    ensureProjectLoaded,
+    finishToolCapture,
+    takeToolHandoff
+  } from '$lib/tools/shared/projectBridge';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
+  import { svgPreview } from '$lib/tools/shared/preview';
+  import { saveReproBundle } from '$lib/repro/bundle';
+  import {
+    parseSampleSheet,
+    sampleSheetToCsv,
+    sampleSheetToJson,
+    type SampleSheet
+  } from '$lib/tools/shared/samples';
 
   // ---------------------------------------------------------------- constants
 
@@ -141,7 +158,10 @@
   let hydrated = $state(false);
   let stageEl = $state<HTMLDivElement | null>(null);
   let sampleInput = $state<HTMLInputElement | null>(null);
+  let sampleSheetInput = $state<HTMLInputElement | null>(null);
   let projectInput = $state<HTMLInputElement | null>(null);
+  let handoffLoading = $state(false);
+  let reproBusy = $state(false);
 
   let sampleSeq = 1;
   let paintedDuringDrag = new Set<string>();
@@ -231,22 +251,47 @@
   // --------------------------------------------------------------- lifecycle
 
   onMount(() => {
-    const snapshot = loadPlateSnapshot();
-    if (snapshot?.project) {
-      const hasData =
-        snapshot.project.samples.length > 0 ||
-        snapshot.project.assignments.length > 0 ||
-        snapshot.project.title.trim().length > 0;
-      if (hasData) {
-        applyProject(snapshot.project);
-        pushToast('success', m.plateTitle(), m.plateRestored());
-        const dropped = snapshot.duplicateWells + snapshot.droppedAssignments;
+    handoffLoading = true;
+    ensureProjectLoaded();
+    const handoff = takeToolHandoff('plate');
+    let openedFromProject = false;
+
+    if (handoff?.type === 'open') {
+      const normalized = normalizePlatePayload(handoff.payload);
+      if (normalized.project) {
+        applyProject(normalized.project);
+        pushToast('success', m.plateTitle(), m.plateProjectRestored());
+        const dropped = normalized.duplicateWells + normalized.droppedAssignments;
         if (dropped > 0) {
           pushToast('warn', m.plateTitle(), m.plateImportDropped({ n: dropped }));
         }
+        openedFromProject = true;
+      } else {
+        pushToast('error', m.plateTitle(), m.plateProjectInvalid());
       }
     }
+
+    if (!openedFromProject) {
+      const snapshot = loadPlateSnapshot();
+      if (snapshot?.project) {
+        const hasData =
+          snapshot.project.samples.length > 0 ||
+          snapshot.project.assignments.length > 0 ||
+          snapshot.project.title.trim().length > 0;
+        if (hasData) {
+          applyProject(snapshot.project);
+          pushToast('success', m.plateTitle(), m.plateRestored());
+          const dropped = snapshot.duplicateWells + snapshot.droppedAssignments;
+          if (dropped > 0) {
+            pushToast('warn', m.plateTitle(), m.plateImportDropped({ n: dropped }));
+          }
+        }
+      }
+    }
+
     hydrated = true;
+    handoffLoading = false;
+    if (handoff?.type === 'capture') void captureToProject();
   });
 
   $effect(() => {
@@ -257,6 +302,18 @@
       saveFailed = !ok;
       if (ok) autosaveAt = new Date().toLocaleTimeString();
     }, 600);
+    return () => clearTimeout(timer);
+  });
+
+  // Write the live layout back into the active project document. Debounced so
+  // dragging a painted well does not force a project persist on every pixel.
+  $effect(() => {
+    if (!hydrated || handoffLoading) return;
+    if (projectStore.activeDocKind !== 'plate') return;
+    const project = buildProjectFile();
+    const timer = setTimeout(() => {
+      if (projectStore.activeDocKind === 'plate') projectStore.commitDoc('plate', project);
+    }, 400);
     return () => clearTimeout(timer);
   });
 
@@ -381,6 +438,37 @@
 
   function displayTitle(): string {
     return title.trim() || m.platePlateTitleDefault();
+  }
+
+  function projectSummaryText(): string {
+    const counts = plateProjectCounts(buildProjectFile());
+    return m.plateProjectSummary({
+      samples: counts.samples,
+      assigned: counts.assigned,
+      total: counts.total
+    });
+  }
+
+  async function projectPreview(): Promise<string | null> {
+    try {
+      const figure = buildSvg();
+      const preview = await svgPreview(figure.svg, figure.width, figure.height);
+      return preview || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function captureToProject() {
+    if (!projectStore.hasOpenProject) return;
+    const preview = await projectPreview();
+    finishToolCapture(
+      'plate',
+      plateProjectName(buildProjectFile(), m.platePlateTitleDefault()),
+      buildProjectFile(),
+      preview ?? undefined,
+      projectSummaryText()
+    );
   }
 
   function exportNote(): string {
@@ -532,13 +620,12 @@
     if (selectedSampleId === id) selectedSampleId = samples[0]?.id ?? null;
   }
 
-  function applySampleText(text: string) {
-    const parsed = parseSampleTable(text);
-    if (parsed.rows.length === 0) {
+  function applySampleDrafts(drafts: SampleDraft[], skipped: number, notify = true) {
+    if (drafts.length === 0) {
       pushToast('warn', m.plateTitle(), m.plateParseEmpty());
       return;
     }
-    const rows: SampleRow[] = parsed.rows.map((draft) => ({
+    const rows: SampleRow[] = drafts.map((draft) => ({
       id: newSampleId(),
       name: draft.name,
       group: draft.group,
@@ -558,10 +645,16 @@
     if (!selectedSampleId || !samples.some((sample) => sample.id === selectedSampleId)) {
       selectedSampleId = rows[0]?.id ?? samples[0]?.id ?? null;
     }
-    const body = parsed.skipped
-      ? `${m.plateParsedRows({ n: rows.length })} ${m.plateSkippedRows({ n: parsed.skipped })}`
+    if (!notify) return;
+    const body = skipped
+      ? `${m.plateParsedRows({ n: rows.length })} ${m.plateSkippedRows({ n: skipped })}`
       : m.plateParsedRows({ n: rows.length });
     pushToast('success', m.plateTitle(), body);
+  }
+
+  function applySampleText(text: string) {
+    const parsed = parseSampleTable(text);
+    applySampleDrafts(parsed.rows, parsed.skipped);
   }
 
   function applyPaste() {
@@ -580,6 +673,34 @@
     if (!file) return;
     try {
       applySampleText(await file.text());
+    } catch {
+      pushToast('error', m.plateTitle(), m.plateFileReadFailed());
+    }
+  }
+
+  async function onSampleSheetFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      const sheet = parseSampleSheet(await file.text());
+      if (!sheet) {
+        pushToast('error', m.plateTitle(), m.plateSamplesInvalid());
+        return;
+      }
+      const drafts: SampleDraft[] = sheet.samples.map((entry) => ({
+        name: entry.name,
+        group: entry.group,
+        color: normalizeColor(entry.color ?? ''),
+        replicates: entry.replicates ?? null
+      }));
+      if (drafts.length === 0) {
+        pushToast('warn', m.plateTitle(), m.plateParseEmpty());
+        return;
+      }
+      applySampleDrafts(drafts, 0, false);
+      pushToast('success', m.plateTitle(), m.plateSamplesImported({ n: drafts.length }));
     } catch {
       pushToast('error', m.plateTitle(), m.plateFileReadFailed());
     }
@@ -855,6 +976,111 @@
     pushToast(ok ? 'success' : 'error', m.plateTitle(), ok ? m.plateCopied() : m.plateCopyFailed());
   }
 
+  function currentSampleSheet(): SampleSheet {
+    return {
+      format: 'SPICE_SAMPLES',
+      version: 1,
+      name: displayTitle(),
+      samples: samples.map((sample) => ({
+        id: sample.id,
+        name: sample.name,
+        group: sample.group,
+        color: sample.color || undefined,
+        replicates: sample.replicates ?? rules.replicates
+      })),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  async function exportSamplesJson() {
+    if (samples.length === 0) {
+      pushToast('warn', m.plateTitle(), m.plateNoSamplesExport());
+      return;
+    }
+    const base = fileBaseName(title, 'plate-layout');
+    await saveExport(`${base}-samples.samples.json`, sampleSheetToJson(currentSampleSheet()));
+  }
+
+  async function exportSamplesCsv() {
+    if (samples.length === 0) {
+      pushToast('warn', m.plateTitle(), m.plateNoSamplesExport());
+      return;
+    }
+    const base = fileBaseName(title, 'plate-layout');
+    await saveExport(`${base}-samples.csv`, sampleSheetToCsv(currentSampleSheet()));
+  }
+
+  async function exportQpcrMap() {
+    if (!ensureExportable()) return;
+    const base = fileBaseName(title, 'plate-layout');
+    // Keep the shared well,sample,group,type,replicate header but omit empty
+    // and reserved wells so the file can be loaded as a qPCR plate template.
+    const rows = buildPlateRows(format, assignments).filter(
+      (row) => row.type !== 'empty' && row.type !== 'reserved'
+    );
+    await saveExport(`${base}-plate-map-qpcr.csv`, plateRowsToCsv(rows));
+  }
+
+  async function exportReproBundle() {
+    if (!hasExportable || reproBusy) return;
+    reproBusy = true;
+    try {
+      const base = fileBaseName(title, 'plate-layout');
+      const figure = buildSvg();
+      const canvas = await renderSvgToCanvas(figure.svg, figure.width, figure.height, 300 / 96);
+      const png = pngWithDpi(
+        await canvasToPngBytes(canvas),
+        300,
+        `${displayTitle()} | ${exportNote()}`
+      );
+      const rows = buildPlateRows(format, assignments);
+      const result = await saveReproBundle({
+        tool: 'Plate layout',
+        title: displayTitle(),
+        files: [
+          { name: `${base}-plate-map.svg`, mime: 'image/svg+xml', data: figure.svg },
+          { name: `${base}-plate-300dpi.png`, mime: 'image/png', data: png },
+          { name: `${base}-plate-map.csv`, mime: 'text/csv', data: plateRowsToCsv(rows) },
+          {
+            name: `${base}-samples.samples.json`,
+            mime: 'application/json',
+            data: sampleSheetToJson(currentSampleSheet())
+          }
+        ],
+        parameters: {
+          format,
+          rows: geometry.rows,
+          cols: geometry.cols,
+          wells: geometry.total,
+          assignedWells: assignedCount,
+          samples: samples.map((sample) => ({
+            id: sample.id,
+            name: sample.name,
+            group: sample.group,
+            color: sample.color,
+            replicates: sample.replicates
+          })),
+          rules: { ...rules },
+          colorBy,
+          showLabels
+        },
+        methods:
+          'Plate layouts were generated with SPICE GUI using a deterministic seed: the same sample list, rule set and seed reproduce the same well assignments. Replicate counts, control and blank wells, edge handling, group layout and randomisation were applied in the order recorded in parameters.json. The plate map is exported as vector SVG, as a 300 dpi PNG with physical resolution metadata, and as well,sample,group,type,replicate CSV.',
+        project: buildProjectFile()
+      });
+      if (result.ok) {
+        pushToast('success', m.plateTitle(), m.plateReproDone({ name: result.path ?? result.fileName }));
+      } else if (!result.canceled) {
+        pushToast('error', m.plateTitle(), m.plateReproFailed({ message: result.error ?? '' }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushToast('error', m.plateTitle(), m.plateReproFailed({ message }));
+    } finally {
+      reproBusy = false;
+    }
+  }
+
   async function saveProjectJson() {
     const base = fileBaseName(title, 'plate-layout');
     await saveExport(`${base}-plate-project.json`, serializePlateProject(buildProjectFile()));
@@ -884,6 +1110,14 @@
 </script>
 
 <div class="plate-tool">
+  <ToolProjectBar
+    kind="plate"
+    getPayload={() => buildProjectFile()}
+    getName={() => displayTitle()}
+    getPreview={projectPreview}
+    getSummary={projectSummaryText}
+  />
+
   <div class="pt-toolbar">
     <div class="pt-brand">
       <Grid3X3 size={14} />
@@ -958,6 +1192,10 @@
           <button class="pix-btn" onclick={() => sampleInput?.click()}>
             <Upload size={11} />
             {m.plateImportCsv()}
+          </button>
+          <button class="pix-btn" onclick={() => sampleSheetInput?.click()}>
+            <FileUp size={11} />
+            {m.plateImportSamples()}
           </button>
           <select
             class="pt-select pt-mode"
@@ -1316,6 +1554,26 @@
           </button>
         </div>
 
+        <div class="export-grid">
+          <button class="pix-btn" onclick={exportSamplesJson} disabled={samples.length === 0}>
+            <FileDown size={11} />
+            {m.plateExportSamplesJson()}
+          </button>
+          <button class="pix-btn" onclick={exportSamplesCsv} disabled={samples.length === 0}>
+            <FileDown size={11} />
+            {m.plateExportSamplesCsv()}
+          </button>
+          <button class="pix-btn span2" onclick={exportQpcrMap} disabled={!hasExportable}>
+            <FileDown size={11} />
+            {m.plateExportQpcr()}
+          </button>
+          <button class="pix-btn span2" onclick={exportReproBundle} disabled={!hasExportable || reproBusy}>
+            <Download size={11} />
+            {reproBusy ? m.plateReproBusy() : m.plateReproBundle()}
+          </button>
+        </div>
+        <p class="hint">{m.plateQpcrHint()}</p>
+
         {#if exporting}
           <div class="busy-line">{exporting}</div>
         {/if}
@@ -1602,6 +1860,13 @@
   class="hidden-input"
   bind:this={projectInput}
   onchange={onProjectFile}
+/>
+<input
+  type="file"
+  accept=".samples.json,.json,application/json"
+  class="hidden-input"
+  bind:this={sampleSheetInput}
+  onchange={onSampleSheetFile}
 />
 
 <svelte:window onpointerup={endPaint} onpointercancel={endPaint} onkeydown={onWindowKeydown} />

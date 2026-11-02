@@ -3847,5 +3847,10 @@
   "treeFocusedGroup": "집중: {group}",
   "treeSupportFiltered": "임계값 미만 지지도는 숨겨집니다",
   "treeFileTooLarge": "파일이 너무 큽니다(최대 20 MB)",
-  "treeReadFailed": "파일을 읽을 수 없습니다"
+  "treeReadFailed": "파일을 읽을 수 없습니다",
+  "projectToolCaptureBtn": "도구에서 가져오기",
+  "projectToolSelectLabel": "도구",
+  "projectDocInsertJournal": "저널에 삽입",
+  "projectDocInsertedToast": "현재 저널 페이지에 그림을 삽입했습니다",
+  "projectDocNoPreview": "이 문서에는 삽입할 미리보기가 없습니다"
 }

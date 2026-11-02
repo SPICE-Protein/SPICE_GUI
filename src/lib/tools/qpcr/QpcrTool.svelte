@@ -6,6 +6,10 @@
   import * as m from '$lib/paraglide/messages.js';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { backend } from '$lib/backend/api';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import { ensureProjectLoaded, takeToolHandoff } from '$lib/tools/shared/projectBridge';
+  import { parsePlateMap, plateMapToQpcrTsv } from '$lib/tools/shared/samples';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
   import {
     Upload,
     FileUp,
@@ -21,7 +25,9 @@
     ChartColumn,
     Grid3x3,
     Check,
-    X
+    X,
+    Archive,
+    FileSpreadsheet
   } from 'lucide-svelte';
   import {
     autoMap,
@@ -33,7 +39,6 @@
   import {
     COLUMN_KEYS,
     emptyProject,
-    normalizeProject,
     sanitizeSettings,
     type ColumnKey,
     type QpcrProject,
@@ -58,6 +63,9 @@
   import { buildResultsCsv } from './export';
   import { loadSnapshot, saveSnapshot, clearSnapshot } from './storage';
   import { EXAMPLE_TSV } from './example';
+  import { sanitizeQpcrProject, qpcrDocSummary, qpcrDocPreview } from './projectDoc';
+  import { saveQpcrReproBundle } from './repro';
+  import { tm } from './messages';
 
   let project = $state<QpcrProject>(emptyProject());
   let headers = $state<string[]>([]);
@@ -67,8 +75,16 @@
   let busy = $state('');
   let dataInput = $state<HTMLInputElement | null>(null);
   let projectInput = $state<HTMLInputElement | null>(null);
+  let plateInput = $state<HTMLInputElement | null>(null);
+  let handoffLoading = $state(false);
+  let platePreview = $state<{
+    fileName: string;
+    rows: ReturnType<typeof parsePlateMap>;
+    target: string;
+  } | null>(null);
   let quotaWarned = false;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let commitTimer: ReturnType<typeof setTimeout> | null = null;
 
   const qc = $derived(computeQc(project.wells, project.settings));
   const ddct = $derived(computeDdct(project.wells, project.settings, qc));
@@ -116,17 +132,41 @@
   // ------------------------------------------------------------- lifecycle
 
   onMount(() => {
-    const snapshot = loadSnapshot();
-    if (snapshot) {
-      project = snapshot;
-      refreshHeaders();
-      if (project.mode === 'standard') activeTab = 'curve';
+    ensureProjectLoaded();
+    const handoff = takeToolHandoff('qpcr');
+    if (handoff?.type === 'open') {
+      void openHandoffProject(handoff.payload);
+    } else {
+      const snapshot = loadSnapshot();
+      if (snapshot) {
+        project = snapshot;
+        refreshHeaders();
+        if (project.mode === 'standard') activeTab = 'curve';
+      }
+      loaded = true;
     }
-    loaded = true;
     return () => {
       if (persistTimer) clearTimeout(persistTimer);
+      if (commitTimer) clearTimeout(commitTimer);
     };
   });
+
+  async function openHandoffProject(payload: unknown) {
+    handoffLoading = true;
+    try {
+      const parsed = sanitizeQpcrProject(payload);
+      if (!parsed) {
+        toastError(m.qpcrProjectInvalid());
+        return;
+      }
+      project = parsed;
+      refreshHeaders();
+      if (project.mode === 'standard') activeTab = 'curve';
+    } finally {
+      handoffLoading = false;
+      loaded = true;
+    }
+  }
 
   $effect(() => {
     const payload = JSON.stringify(project);
@@ -143,6 +183,20 @@
         pushToast('error', m.toolsQpcrTitle(), m.qpcrStorageFull());
       }
     }, 600);
+  });
+
+  // Write live editor state back into the active project document. The guard
+  // prevents committing a partially restored handoff payload.
+  $effect(() => {
+    const payload = JSON.stringify(project);
+    if (!loaded || handoffLoading) return;
+    if (!projectStore.hasOpenProject || projectStore.activeDocKind !== 'qpcr') return;
+    if (commitTimer) clearTimeout(commitTimer);
+    commitTimer = setTimeout(() => {
+      if (projectStore.hasOpenProject && projectStore.activeDocKind === 'qpcr') {
+        projectStore.commitDoc('qpcr', JSON.parse(payload) as QpcrProject);
+      }
+    }, 350);
   });
 
   // ---------------------------------------------------------------- helpers
@@ -224,6 +278,8 @@
         return m.qpcrFlagOutlierShort();
       case 'duplicateWell':
         return m.qpcrFlagDuplicateShort();
+      case 'missingRef':
+        return tm.qpcrFlagMissingRefShort();
       case 'invalid':
         return m.qpcrFlagInvalidShort();
       default:
@@ -249,6 +305,8 @@
       }
       case 'duplicateWell':
         return m.qpcrFlagDuplicate();
+      case 'missingRef':
+        return tm.qpcrFlagMissingRef();
       case 'invalid':
         return m.qpcrFlagInvalid();
       default:
@@ -295,8 +353,23 @@
     const targets = listTargets(project.wells);
     const groups = listGroups(project.wells);
     const samples = listSamples(project.wells);
-    if (!targets.some((target) => target.key === normKey(settings.referenceTarget))) {
-      settings.referenceTarget = targets[0]?.label ?? '';
+    const validReferences: string[] = [];
+    for (const label of settings.referenceTargets ?? []) {
+      const target = targets.find((item) => item.key === normKey(label));
+      if (target && !validReferences.some((item) => normKey(item) === target.key)) {
+        validReferences.push(target.label);
+      }
+    }
+    if (!validReferences.length && settings.referenceTarget) {
+      const legacy = targets.find((item) => item.key === normKey(settings.referenceTarget));
+      if (legacy) validReferences.push(legacy.label);
+    }
+    if (!validReferences.length && targets.length) validReferences.push(targets[0].label);
+    // With no targets yet (for example a plate map awaiting a default target)
+    // keep the existing selection instead of erasing settings.
+    if (validReferences.length || targets.length) {
+      settings.referenceTargets = validReferences;
+      settings.referenceTarget = validReferences[0] ?? '';
     }
     if (!groups.some((group) => group.key === normKey(settings.controlGroup))) {
       settings.controlGroup = groups[0]?.label ?? '';
@@ -403,6 +476,107 @@
     activeTab = mode === 'standard' ? 'curve' : 'fold';
   }
 
+  function missingReferenceNames(): string {
+    const samples = ddct.referenceMissingSamples;
+    const names = samples
+      .slice(0, 5)
+      .map((row) => row.sample)
+      .join(', ');
+    return samples.length > 5 ? `${names}…` : names;
+  }
+
+  function isReference(label: string): boolean {
+    const key = normKey(label);
+    return (project.settings.referenceTargets ?? []).some((item) => normKey(item) === key);
+  }
+
+  function setReferenceTargets(labels: string[]) {
+    const unique: string[] = [];
+    for (const label of labels) {
+      if (!unique.some((item) => normKey(item) === normKey(label))) unique.push(label);
+    }
+    project.settings.referenceTargets = unique;
+    project.settings.referenceTarget = unique[0] ?? '';
+    project.updatedAt = new Date().toISOString();
+  }
+
+  function toggleReference(label: string, checked: boolean) {
+    const key = normKey(label);
+    const current = project.settings.referenceTargets ?? [];
+    const next = checked
+      ? [...current.filter((item) => normKey(item) !== key), label]
+      : current.filter((item) => normKey(item) !== key);
+    if (!next.length) {
+      toastError(tm.qpcrReferenceNone());
+      return;
+    }
+    setReferenceTargets(next);
+  }
+
+  // ---------------------------------------------------------- plate-map import
+
+  async function onPlateFile(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      const rows = parsePlateMap(await file.text());
+      if (!rows.length) {
+        toastError(tm.qpcrPlateEmpty());
+        return;
+      }
+      platePreview = { fileName: file.name, rows, target: '' };
+    } catch (error) {
+      toastError(m.qpcrImportFailed(), error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function plateSamples(rows: ReturnType<typeof parsePlateMap>): number {
+    return new Set(rows.map((row) => row.sample.trim()).filter(Boolean)).size;
+  }
+
+  function plateGroups(rows: ReturnType<typeof parsePlateMap>): number {
+    return new Set(rows.map((row) => row.group.trim()).filter(Boolean)).size;
+  }
+
+  function cancelPlatePreview() {
+    platePreview = null;
+  }
+
+  function applyPlatePreview() {
+    const preview = platePreview;
+    if (!preview) return;
+    const text = plateMapToQpcrTsv(preview.rows, preview.target.trim());
+    let table: ParsedTable;
+    try {
+      table = parseDelimited(text);
+    } catch (error) {
+      toastError(m.qpcrImportFailed(), error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (!table.headers.length) {
+      toastError(m.qpcrImportFailed());
+      return;
+    }
+    const mapping = autoMap(table.headers);
+    const wells = buildWells(table, mapping);
+    // Reserved and blank plate wells stay visible but start excluded.
+    preview.rows.forEach((row, index) => {
+      const well = wells[index];
+      if (!well) return;
+      if (row.type === 'reserved' || !row.sample.trim()) well.include = false;
+    });
+    headers = table.headers;
+    project.rawText = text;
+    project.fileName = preview.fileName;
+    project.mapping = mapping;
+    project.wells = wells;
+    project.updatedAt = new Date().toISOString();
+    toastSuccess(tm.qpcrPlateLoaded({ n: wells.length }));
+    platePreview = null;
+  }
+
   // ---------------------------------------------------------------- exports
 
   async function saveText(name: string, text: string, message: string): Promise<boolean> {
@@ -444,6 +618,35 @@
     await saveText(`${baseName()}_qpcr_results.csv`, csv, m.qpcrExported());
   }
 
+  async function exportReproBundle() {
+    if (!hasData || !chartDoc) {
+      toastError(tm.qpcrReproNoData());
+      return;
+    }
+    busy = tm.qpcrReproBusy();
+    try {
+      const result = await saveQpcrReproBundle({
+        project,
+        chart: chartDoc,
+        qc,
+        ddct,
+        standard,
+        title: docName(),
+        flagged: flaggedCount,
+      });
+      if (result.ok) toastSuccess(tm.qpcrReproSaved());
+      else if (!result.canceled) toastError(result.error || tm.qpcrReproFailed());
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : tm.qpcrReproFailed());
+    } finally {
+      busy = '';
+    }
+  }
+
+  function docName(): string {
+    return project.fileName.replace(/\.[^.]+$/, '').trim() || m.toolsQpcrTitle();
+  }
+
   async function exportChartSvg() {
     if (!chartDoc) {
       toastError(m.qpcrChartEmptyToast());
@@ -481,7 +684,7 @@
     input.value = '';
     if (!file) return;
     try {
-      const parsed = normalizeProject(JSON.parse(await file.text()));
+      const parsed = sanitizeQpcrProject(JSON.parse(await file.text()));
       if (!parsed) {
         toastError(m.qpcrProjectInvalid());
         return;
@@ -506,6 +709,14 @@
   }
 </script>
 
+<ToolProjectBar
+  kind="qpcr"
+  getPayload={() => JSON.parse(JSON.stringify(project)) as QpcrProject}
+  getName={docName}
+  getPreview={() => qpcrDocPreview(chartDoc)}
+  getSummary={() => qpcrDocSummary(project, flaggedCount)}
+/>
+
 <div class="qpcr-shell">
   <aside class="side">
     <div class="side-block">
@@ -527,7 +738,52 @@
       <button class="pix-btn-reset full" onclick={loadExample}>
         <FlaskConical size={11} /> {m.qpcrExampleBtn()}
       </button>
+      <button class="pix-btn full" onclick={() => plateInput?.click()}>
+        <FileSpreadsheet size={11} /> {tm.qpcrPlateImport()}
+      </button>
       <div class="hint">{m.qpcrFileHint()}</div>
+      <div class="hint">{tm.qpcrPlateHint()}</div>
+
+      {#if platePreview}
+        <div class="plate-preview">
+          <div class="plate-head">
+            <span class="plate-title">{tm.qpcrPlatePreviewTitle()}</span>
+            <button class="tiny-btn" onclick={cancelPlatePreview}>
+              <X size={9} /> {tm.qpcrPlateCancel()}
+            </button>
+          </div>
+          <div class="plate-file" title={platePreview.fileName}>{platePreview.fileName}</div>
+          <div class="plate-counts">
+            <span>{tm.qpcrPlateRows({ n: platePreview.rows.length })}</span>
+            <span>{tm.qpcrPlateSamples({ n: plateSamples(platePreview.rows) })}</span>
+            <span>{tm.qpcrPlateGroups({ n: plateGroups(platePreview.rows) })}</span>
+          </div>
+          <div class="plate-rows">
+            {#each platePreview.rows.slice(0, 8) as row (row.well)}
+              <span class="plate-row">
+                <b>{row.well}</b>
+                <span>{row.sample || '—'}</span>
+                <span class="plate-group">{row.group || '—'}</span>
+              </span>
+            {/each}
+            {#if platePreview.rows.length > 8}
+              <span class="plate-more">…</span>
+            {/if}
+          </div>
+          <label class="field plate-target">
+            <span>{tm.qpcrPlateDefaultTarget()}</span>
+            <input
+              class="pix-input"
+              type="text"
+              bind:value={platePreview.target}
+              placeholder={m.qpcrColTarget()}
+            />
+          </label>
+          <button class="pix-btn ok full" onclick={applyPlatePreview}>
+            <FileSpreadsheet size={11} /> {tm.qpcrPlateLoad()}
+          </button>
+        </div>
+      {/if}
     </div>
 
     <div class="side-block">
@@ -563,17 +819,30 @@
 
     <div class="side-block">
       <div class="side-title"><Calculator size={11} /> {m.qpcrSectionAnalysis()}</div>
-      <label class="field">
-        <span>{m.qpcrReferenceLabel()}</span>
-        <select bind:value={project.settings.referenceTarget}>
-          {#each ddct.targets as target (target.key)}
-            <option value={target.label}>{target.label}</option>
-          {/each}
-          {#if !ddct.targets.length}
-            <option value="">—</option>
-          {/if}
-        </select>
-      </label>
+      <div class="ref-field">
+        <span class="ref-label">{tm.qpcrReferenceMulti()}</span>
+        {#if ddct.targets.length}
+          <div class="ref-list">
+            {#each ddct.targets as target (target.key)}
+              <label class="ref-check">
+                <input
+                  type="checkbox"
+                  checked={isReference(target.label)}
+                  onchange={(event) =>
+                    toggleReference(
+                      target.label,
+                      (event.currentTarget as HTMLInputElement).checked,
+                    )}
+                />
+                <span>{target.label}</span>
+              </label>
+            {/each}
+          </div>
+        {:else}
+          <span class="ref-empty">—</span>
+        {/if}
+        <span class="ref-hint">{tm.qpcrReferenceHint()}</span>
+      </div>
       <label class="field">
         <span>{m.qpcrControlGroupLabel()}</span>
         <select bind:value={project.settings.controlGroup} disabled={!ddct.groups.length}>
@@ -669,6 +938,13 @@
       <button class="pix-btn full" onclick={exportCsv} disabled={!hasData}>
         <FileDown size={11} /> {m.qpcrExportCsv()}
       </button>
+      <button
+        class="pix-btn ok full"
+        onclick={exportReproBundle}
+        disabled={!hasData || !chartDoc || !!busy}
+      >
+        <Archive size={11} /> {tm.qpcrReproButton()}
+      </button>
       <div class="row">
         <button class="pix-btn" onclick={exportChartSvg} disabled={!chartDoc}>
           <ChartColumn size={11} /> {m.qpcrExportSvg()}
@@ -741,7 +1017,15 @@
           {:else if ddct.referenceFallback}
             <div class="banner banner-info">
               <CircleAlert size={13} />
-              {m.qpcrReferenceFallback({ name: ddct.reference?.label ?? '' })}
+              {m.qpcrReferenceFallback({
+                name: ddct.references.map((reference) => reference.label).join(', '),
+              })}
+            </div>
+          {/if}
+          {#if ddct.referenceMissingSamples.length}
+            <div class="banner banner-warn">
+              <CircleAlert size={13} />
+              {tm.qpcrReferenceMissingSamples({ names: missingReferenceNames() })}
             </div>
           {/if}
           {#if !ddct.samples.length}
@@ -1161,6 +1445,13 @@
   bind:this={projectInput}
   onchange={onProjectFile}
 />
+<input
+  type="file"
+  accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+  style="display:none"
+  bind:this={plateInput}
+  onchange={onPlateFile}
+/>
 
 <style>
   .qpcr-shell {
@@ -1263,6 +1554,39 @@
     gap: 5px;
   }
   .field > span { font-size: 9px; color: var(--pix-fg-dim); }
+  .ref-field { display: flex; flex-direction: column; gap: 4px; }
+  .ref-label { font-size: 9px; color: var(--pix-fg-dim); }
+  .ref-list {
+    display: flex; flex-wrap: wrap; gap: 3px 8px; max-height: 92px; overflow-y: auto;
+    padding: 4px; border: 2px solid var(--pix-border); background: var(--pix-bg-3);
+  }
+  .ref-check {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 9px; color: var(--pix-fg); cursor: pointer;
+  }
+  .ref-check input { accent-color: var(--pix-cyan); margin: 0; }
+  .ref-empty { font-size: 9px; color: var(--pix-fg-dim); }
+  .ref-hint { font-size: 8px; line-height: 1.4; color: var(--pix-fg-dim); }
+  .plate-preview {
+    display: flex; flex-direction: column; gap: 5px; padding: 6px;
+    border: 2px solid var(--pix-cyan); background: var(--pix-bg-3);
+  }
+  .plate-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .plate-title { font-size: 9px; font-weight: 700; color: var(--pix-cyan); }
+  .plate-file {
+    font-size: 8.5px; color: var(--pix-fg-dim); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .plate-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 8.5px; color: var(--pix-fg); }
+  .plate-rows {
+    display: flex; flex-direction: column; gap: 1px; max-height: 92px; overflow-y: auto;
+    font-size: 8.5px; color: var(--pix-fg-dim);
+  }
+  .plate-row { display: grid; grid-template-columns: 38px 1fr auto; gap: 5px; }
+  .plate-row b { color: var(--pix-cyan); font-weight: 700; }
+  .plate-group { color: var(--pix-fg-dim); }
+  .plate-more { color: var(--pix-fg-dim); }
+  .plate-target { grid-template-columns: 84px 1fr; }
   .check {
     display: flex;
     align-items: flex-start;
@@ -1456,6 +1780,7 @@
   .flag-replicateSd { color: var(--pix-purple); }
   .flag-outlier { color: var(--pix-red); }
   .flag-duplicateWell { color: var(--pix-cyan); }
+  .flag-missingRef { color: var(--pix-purple); }
   .flag-invalid { color: var(--pix-red); }
 
   .chart-wrap {

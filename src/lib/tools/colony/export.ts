@@ -5,6 +5,7 @@ import type { MarkerNumbering } from './markers';
 import { median } from './markers';
 import type { ColonyMarker, ColonyProject } from './types';
 import { isColonyProject, normalizeProject } from './types';
+import { canvasToPngBytes, createCanvas } from '$lib/tools/shared/canvas';
 
 // ------------------------------------------------------------------ PNG
 
@@ -34,21 +35,10 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
   return out;
 }
 
-function canvasToPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('PNG encoding failed'));
-        return;
-      }
-      blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer)), reject);
-    }, 'image/png');
-  });
-}
 
 /** Insert a pHYs chunk (physical pixel size) into a canvas PNG. */
 export async function canvasToPngWithDpi(canvas: HTMLCanvasElement, dpi: number): Promise<Uint8Array> {
-  const png = await canvasToPng(canvas);
+  const png = await canvasToPngBytes(canvas);
   if (png.length < 33) return png;
   const ppm = Math.round(Math.max(1, dpi) / 0.0254);
   const phys = new Uint8Array(9);
@@ -86,9 +76,7 @@ export function renderAnnotated(
   numbering: MarkerNumbering,
   showNumbers: boolean,
 ): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = source.width;
-  canvas.height = source.height;
+  const canvas = createCanvas(source.width, source.height);
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(source, 0, 0);
   const radii = markers.filter((m) => m.included).map((m) => m.radius);

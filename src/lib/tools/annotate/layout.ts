@@ -296,6 +296,16 @@ export function buildAnnotationMeta(project: AnnotateProject, geom: FigureGeomet
         box = normalizeBox({ x: ann.x, y: ann.y, w: ann.w, h: ann.h });
         break;
       }
+      case 'profile': {
+        const pad = Math.max(ann.strokeWidthPt * PT_TO_PX, 4);
+        box = normalizeBox({
+          x: ann.x1 - pad,
+          y: ann.y1 - pad,
+          w: ann.x2 - ann.x1 + pad * 2,
+          h: ann.y2 - ann.y1 + pad * 2,
+        });
+        break;
+      }
       case 'text': {
         fontPx = ann.fontSizePt * PT_TO_PX;
         const metrics = textMetrics(ann.text || ' ', fontPx, family);
@@ -355,6 +365,7 @@ export function annotationHandles(ann: Annotation, meta: AnnotationMeta | undefi
   if (!meta) return [];
   switch (ann.kind) {
     case 'arrow':
+    case 'profile':
       return [
         { id: 'start', x: ann.x1, y: ann.y1 },
         { id: 'end', x: ann.x2, y: ann.y2 },

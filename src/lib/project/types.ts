@@ -5,15 +5,37 @@
 // container.ts). This in-memory JSON shape is what the container encodes,
 // what localStorage snapshots hold, and what legacy gen-1 files contain.
 
-export type ProjectDocKind = 'gene' | 'protein';
+export const TOOL_DOC_KINDS = ['gel', 'blot', 'qpcr', 'plate', 'colony', 'annotate', 'tree'] as const;
+export type ToolDocKind = (typeof TOOL_DOC_KINDS)[number];
+
+export type ProjectDocKind = 'gene' | 'protein' | ToolDocKind;
+
+/** Standalone file extension used when a tool document leaves the project. */
+export const TOOL_DOC_EXTENSIONS: Record<ToolDocKind, string> = {
+  gel: 'gel.json',
+  blot: 'blot.json',
+  qpcr: 'qpcr.json',
+  plate: 'plate.json',
+  colony: 'colony.json',
+  annotate: 'annotate.json',
+  tree: 'tree.json'
+};
+
+export function isToolDocKind(kind: unknown): kind is ToolDocKind {
+  return typeof kind === 'string' && (TOOL_DOC_KINDS as readonly string[]).includes(kind);
+}
 
 export interface ProjectDoc {
   id: string;
   kind: ProjectDocKind;
   name: string;
-  /** Full SpiceGeneFile / SPICE_PROTEIN payload, kept opaque here. */
+  /** Full workspace / tool payload, kept opaque here. */
   payload: unknown;
   updatedAt: string;
+  /** Small PNG/JPEG data URI used by the hub and journal insertion. */
+  preview?: string;
+  /** One-line result summary shown in the hub. */
+  summary?: string;
 }
 
 export interface ProjectJournalPage {
@@ -107,6 +129,29 @@ export function newProject(name: string, pi = '', description = ''): SpiceProjec
 
 export type ValidationResult = { ok: true; project: SpiceProjectFile } | { ok: false; error: string };
 
+/** Minimal shape checks for the seven tool payloads. Full validation stays in
+ *  each tool's own sanitizer so the project layer never duplicates tool logic. */
+function isToolPayload(kind: ToolDocKind, payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const p = payload as Record<string, unknown>;
+  switch (kind) {
+    case 'gel':
+      return p.version === 2 && Array.isArray(p.exposures) && Array.isArray(p.lanes);
+    case 'blot':
+      return p.version === 1 && typeof p.imageDataUrl === 'string' && Array.isArray(p.lanes);
+    case 'qpcr':
+      return p.format === 'SPICE_QPCR' && Array.isArray(p.wells);
+    case 'plate':
+      return p.kind === 'spice-plate' && Array.isArray(p.samples) && Array.isArray(p.assignments);
+    case 'colony':
+      return p.version === 1 && Array.isArray(p.markers) && typeof p.imageDataUrl === 'string';
+    case 'annotate':
+      return p.version === 1 && Array.isArray(p.panels) && Array.isArray(p.annotations);
+    case 'tree':
+      return p.format === 'spice-tree' && typeof p.originalNewick === 'string';
+  }
+}
+
 export function validateSpiceProject(x: unknown): ValidationResult {
   if (!x || typeof x !== 'object') return { ok: false, error: 'not an object' };
   const p = x as Partial<SpiceProjectFile>;
@@ -121,11 +166,18 @@ export function validateSpiceProject(x: unknown): ValidationResult {
   if (!Array.isArray(p.docs)) return { ok: false, error: 'docs is not an array' };
   for (const d of p.docs as Partial<ProjectDoc>[]) {
     if (!d || typeof d.id !== 'string' || typeof d.name !== 'string') return { ok: false, error: 'doc missing id/name' };
-    if (d.kind !== 'gene' && d.kind !== 'protein') return { ok: false, error: `doc ${d.id}: bad kind ${String(d.kind)}` };
-    const payload = d.payload as { format?: string } | null;
-    const expected = d.kind === 'gene' ? 'SPICE_GENE' : 'SPICE_PROTEIN';
-    if (!payload || typeof payload !== 'object' || payload.format !== expected) {
-      return { ok: false, error: `doc ${d.name}: payload is not ${expected}` };
+    if (d.kind === 'gene' || d.kind === 'protein') {
+      const payload = d.payload as { format?: string } | null;
+      const expected = d.kind === 'gene' ? 'SPICE_GENE' : 'SPICE_PROTEIN';
+      if (!payload || typeof payload !== 'object' || payload.format !== expected) {
+        return { ok: false, error: `doc ${d.name}: payload is not ${expected}` };
+      }
+    } else if (isToolDocKind(d.kind)) {
+      if (!isToolPayload(d.kind, d.payload)) {
+        return { ok: false, error: `doc ${d.name}: invalid ${d.kind} payload` };
+      }
+    } else {
+      return { ok: false, error: `doc ${d.id}: bad kind ${String(d.kind)}` };
     }
   }
   const pages = p.journal?.pages;
@@ -146,7 +198,9 @@ export function validateSpiceProject(x: unknown): ValidationResult {
     kind: d.kind,
     name: d.name,
     payload: d.payload,
-    updatedAt: typeof d.updatedAt === 'string' ? d.updatedAt : new Date().toISOString()
+    updatedAt: typeof d.updatedAt === 'string' ? d.updatedAt : new Date().toISOString(),
+    preview: typeof d.preview === 'string' && d.preview.startsWith('data:image/') ? d.preview : undefined,
+    summary: typeof d.summary === 'string' ? d.summary : undefined
   }));
   project.journal.pages = pages.map(pg => ({
     id: pg.id as string,

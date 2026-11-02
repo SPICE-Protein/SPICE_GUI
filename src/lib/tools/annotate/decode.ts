@@ -1,7 +1,7 @@
 // Raster import and image processing for the annotator. TIFF files (8/16-bit
 // scanner output, LZW or Deflate) go through UTIF and are re-encoded as PNG so
 // the project remains a single portable JSON document.
-import { clamp, emptyPanel, type Panel } from './types';
+import { channelIsDefault, clamp, emptyPanel, type ChannelMix, type Panel } from './types';
 
 export interface PanelArt {
   source: CanvasImageSource;
@@ -127,6 +127,47 @@ function canvasFilterSupported(): boolean {
   return filterSupport;
 }
 
+function byte(value: number): number {
+  return value <= 0 ? 0 : value >= 255 ? 255 : Math.round(value);
+}
+
+function compositeChannel(value: number, channel: ChannelMix[keyof ChannelMix]): number {
+  if (!channel.show) return 0;
+  const scaled = value * channel.gain;
+  return byte(channel.invert ? 255 - scaled : scaled);
+}
+
+/**
+ * Apply brightness/contrast and the RGB channel mix in one pass. This is the
+ * single raster composite used by both the on-screen preview and every export,
+ * so annotations and sampled profiles always see the same pixels.
+ */
+function applyComposite(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  brightness: number,
+  contrast: number,
+  channels: ChannelMix,
+) {
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const bf = clamp(brightness, 10, 300) / 100;
+  const cf = clamp(contrast, 10, 300) / 100;
+  const r = channels.r;
+  const g = channels.g;
+  const b = channels.b;
+  for (let i = 0; i < data.length; i += 4) {
+    const lr = (data[i] * bf - 128) * cf + 128;
+    const lg = (data[i + 1] * bf - 128) * cf + 128;
+    const lb = (data[i + 2] * bf - 128) * cf + 128;
+    data[i] = compositeChannel(lr, r);
+    data[i + 1] = compositeChannel(lg, g);
+    data[i + 2] = compositeChannel(lb, b);
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 /** WebKit builds without ctx.filter still get real brightness/contrast. */
 function applyLevels(
   ctx: CanvasRenderingContext2D,
@@ -163,8 +204,13 @@ export async function buildArtwork(
   const scale = maxDimension > 0 && longest > maxDimension ? maxDimension / longest : 1;
   const width = Math.max(1, Math.round(naturalWidth * scale));
   const height = Math.max(1, Math.round(naturalHeight * scale));
-  const needsFilter = clamp(panel.brightness, 10, 300) !== 100 || clamp(panel.contrast, 10, 300) !== 100;
-  if (!needsFilter && !withDataUrl && width === naturalWidth && height === naturalHeight) {
+  const brightness = clamp(panel.brightness, 10, 300);
+  const contrast = clamp(panel.contrast, 10, 300);
+  const needsLevels = brightness !== 100 || contrast !== 100;
+  const channels = panel.channels;
+  const needsChannels =
+    !channelIsDefault(channels.r) || !channelIsDefault(channels.g) || !channelIsDefault(channels.b);
+  if (!needsLevels && !needsChannels && !withDataUrl && width === naturalWidth && height === naturalHeight) {
     return { source: image, width: naturalWidth, height: naturalHeight };
   }
   const canvas = document.createElement('canvas');
@@ -174,15 +220,19 @@ export async function buildArtwork(
   if (!ctx) throw new Error('Canvas 2D is unavailable');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  const brightness = clamp(panel.brightness, 10, 300);
-  const contrast = clamp(panel.contrast, 10, 300);
-  const useFilter = needsFilter && canvasFilterSupported();
-  if (useFilter) {
+  if (needsChannels) {
+    // Channel mixing needs pixel access, so brightness and contrast are folded
+    // into the same pass instead of using the faster canvas filter shortcut.
+    ctx.drawImage(image, 0, 0, width, height);
+    applyComposite(ctx, width, height, brightness, contrast, channels);
+  } else if (needsLevels && canvasFilterSupported()) {
     ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    ctx.drawImage(image, 0, 0, width, height);
+    ctx.filter = 'none';
+  } else {
+    ctx.drawImage(image, 0, 0, width, height);
+    if (needsLevels) applyLevels(ctx, width, height, brightness, contrast);
   }
-  ctx.drawImage(image, 0, 0, width, height);
-  ctx.filter = 'none';
-  if (needsFilter && !useFilter) applyLevels(ctx, width, height, brightness, contrast);
   return {
     source: canvas,
     width,

@@ -9,7 +9,9 @@
     Download,
     FolderOpen,
     Image as ImageIcon,
+    Images,
     Microscope,
+    Palette,
     RotateCcw,
     RotateCw,
     Save,
@@ -36,31 +38,61 @@
   import { segmentGray, type SegmentRequest } from './segment';
   import {
     buildHistogram,
+    cfuCi95,
     computeCfu,
     computeStats,
+    countClasses,
     formatArea,
     formatScientific,
     markersToCsv,
     median,
     nextMarkerId,
-    numberMarkers
+    numberMarkers,
+    poissonCi95,
+    statisticsToCsv,
+    type StatisticsRow
   } from './markers';
-  import { annotatedPngBytes, maskPngBytes, parseProjectJson, projectBaseName, projectJson } from './export';
+  import {
+    annotatedPngBytes,
+    maskPngBytes,
+    parseProjectJson,
+    projectBaseName,
+    projectJson,
+    renderAnnotated
+  } from './export';
   import { clearSnapshot, compactProjectImage, loadSnapshot, saveSnapshot } from './storage';
   import {
     defaultAdjust,
     defaultCrop,
     defaultParams,
     type ColonyAdjust,
+    type ColonyClass,
     type ColonyCrop,
+    type ColonyColorMode,
     type ColonyMarker,
     type ColonyParams,
     type ColonyPolarity,
     type ColonyProject
   } from './types';
+  import { classifyMarkers, clearClassification, detectImageColor } from './color';
+  import { colonyProjectName, normalizeColonyPayload } from './projectDoc';
+  import { MAX_BATCH_PLATES, runColonyBatch, type ColonyBatchInput, type ColonyBatchResult } from './batch';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import {
+    ensureProjectLoaded,
+    finishToolCapture,
+    takeToolHandoff
+  } from '$lib/tools/shared/projectBridge';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
+  import { canvasPreview } from '$lib/tools/shared/preview';
+  import { saveReproBundle } from '$lib/repro/bundle';
+  import { fileBaseName, imageFiles } from '$lib/tools/shared/batch';
+  import { runBatchJob } from '$lib/tools/shared/batchWorker';
+  import { saveZip } from '$lib/tools/shared/zipExport';
 
   let imageInput = $state<HTMLInputElement>();
   let projectInput = $state<HTMLInputElement>();
+  let batchInput = $state<HTMLInputElement>();
   let viewCanvas = $state<HTMLCanvasElement>();
   let overlayCanvas = $state<HTMLCanvasElement>();
   let stageEl = $state<HTMLDivElement>();
@@ -89,6 +121,11 @@
   let hasMask = $state(false);
   let hydrated = $state(false);
   let saveStatus = $state('');
+  let handoffLoading = $state(false);
+  let reproBusy = $state(false);
+  let imageHasColor = $state(false);
+  let batchStatus = $state('');
+  let batchProgress = $state({ running: false, done: 0, total: 0, current: '' });
 
   // Large canvases and detector planes stay outside the reactive proxy.
   let sourceImage: HTMLImageElement | null = null;
@@ -123,16 +160,28 @@
   }
 
   const stats = $derived(computeStats(markers));
+  const classCounts = $derived(countClasses(markers));
   const numbering = $derived(numberMarkers(markers));
   const histogram = $derived(buildHistogram(markers.filter((m) => m.included).map((m) => m.area)));
   const selected = $derived(markers.find((m) => m.id === selectedId) ?? null);
   const cfu = $derived(computeCfu(stats.included, Number(dilutionFactor), Number(platedVolume)));
+  const countCi = $derived(poissonCi95(stats.included));
+  const cfuInterval = $derived(
+    cfuCi95(stats.included, Number(dilutionFactor), Number(platedVolume))
+  );
+  const colorModeOn = $derived(params.colorMode === 'blue-white');
   const hasImage = $derived(!!imageDataUrl && !!workInfo);
 
   // ---------------------------------------------------------------- helpers
 
   function title(): string {
     return m.toolsColonyTitle();
+  }
+
+  function classLabel(value: ColonyClass): string {
+    if (value === 'blue') return m.colonyClassBlue();
+    if (value === 'white') return m.colonyClassWhite();
+    return m.colonyClassUnclassified();
   }
 
   function toast(ok: boolean, message: string) {
@@ -222,6 +271,7 @@
     hasMask = false;
     otsuValue = 0;
     detectedThreshold = 0;
+    imageHasColor = false;
     sourceImage = await loadImageElement(dataUrl);
     if (token !== imageToken) return;
     workMeta = null;
@@ -345,6 +395,25 @@
     scheduleDetect();
   }
 
+  function onColorModeChange(value: ColonyColorMode) {
+    params.colorMode = value;
+    if (value === 'blue-white' && workCanvas) {
+      imageHasColor = classifyMarkers(workCanvas, markers).imageHasColor;
+    } else {
+      clearClassification(markers);
+      imageHasColor = false;
+    }
+    drawOverlay();
+  }
+
+  function setSelectedClass(value: ColonyClass) {
+    const marker = markers.find((entry) => entry.id === selectedId);
+    if (!marker) return;
+    marker.colonyClass = value;
+    marker.classManual = true;
+    drawOverlay();
+  }
+
   async function runDetection(notify: boolean) {
     const sourceCanvas = processedCanvas;
     const meta = workMeta;
@@ -395,6 +464,7 @@
           }
         }
         if (best && bestDistance <= Math.max(4, best.radius * 0.7)) included = best.included;
+        const keepManualClass = best?.classManual === true;
         return {
           id: nextMarkerId(markers),
           x,
@@ -404,9 +474,21 @@
           meanIntensity: colony.meanIntensity,
           circularity: colony.circularity,
           included,
-          source: 'auto'
+          source: 'auto',
+          meanR: keepManualClass ? best!.meanR : 0,
+          meanG: keepManualClass ? best!.meanG : 0,
+          meanB: keepManualClass ? best!.meanB : 0,
+          hue: keepManualClass ? best!.hue : -1,
+          saturation: keepManualClass ? best!.saturation : 0,
+          colonyClass: keepManualClass ? best!.colonyClass : 'unclassified',
+          classManual: keepManualClass
         };
       });
+      if (params.colorMode === 'blue-white' && workCanvas) {
+        imageHasColor = classifyMarkers(workCanvas, mapped).imageHasColor;
+      } else {
+        imageHasColor = false;
+      }
       markers = [...mapped, ...markers.filter((m) => m.source === 'manual')];
       if (selectedId !== null && !markers.some((m) => m.id === selectedId)) selectedId = null;
       drawOverlay();
@@ -459,7 +541,15 @@
       const x = marker.x * sx;
       const y = marker.y * sy;
       const radius = Math.max(5, marker.radius * sx);
-      const color = !marker.included ? '#ff5d5d' : marker.source === 'manual' ? '#4cd6ff' : '#53d769';
+      const color = !marker.included
+        ? '#ff5d5d'
+        : marker.source === 'manual'
+          ? '#4cd6ff'
+          : colorModeOn && marker.colonyClass === 'blue'
+            ? '#5aa9ff'
+            : colorModeOn && marker.colonyClass === 'white'
+              ? '#f2f2f2'
+              : '#53d769';
       ctx.lineWidth = 1.6;
       ctx.strokeStyle = color;
       ctx.beginPath();
@@ -580,8 +670,18 @@
       meanIntensity: sampleIntensity(x, y),
       circularity: 1,
       included: true,
-      source: 'manual'
+      source: 'manual',
+      meanR: 0,
+      meanG: 0,
+      meanB: 0,
+      hue: -1,
+      saturation: 0,
+      colonyClass: 'unclassified',
+      classManual: false
     };
+    if (params.colorMode === 'blue-white' && workCanvas) {
+      imageHasColor = classifyMarkers(workCanvas, [marker]).imageHasColor;
+    }
     markers.push(marker);
     selectedId = marker.id;
     drawOverlay();
@@ -701,6 +801,52 @@
 
   // ------------------------------------------------------------ project I/O
 
+  function projectSummaryText(): string {
+    const base = m.colonyProjectSummary({ count: stats.included });
+    if (!colorModeOn) return base;
+    return `${base} · ${m.colonyClassCounts({
+      blue: classCounts.blue,
+      white: classCounts.white,
+      unclassified: classCounts.unclassified
+    })}`;
+  }
+
+  function projectPreview(): string | null {
+    if (!processedCanvas) return null;
+    try {
+      const canvas = renderAnnotated(processedCanvas, markers, numbering, showNumbers);
+      return canvasPreview(canvas) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function captureToProject() {
+    if (!projectStore.hasOpenProject || !hasImage) return;
+    finishToolCapture(
+      'colony',
+      colonyProjectName(snapshot(), m.toolsColonyTitle()),
+      snapshot(),
+      projectPreview() ?? undefined,
+      projectSummaryText()
+    );
+  }
+
+  function statisticsRow(label: string): StatisticsRow {
+    return {
+      label,
+      count: stats.included,
+      countLow: countCi.low,
+      countHigh: countCi.high,
+      blue: classCounts.blue,
+      white: classCounts.white,
+      unclassified: classCounts.unclassified,
+      cfu,
+      cfuLow: cfuInterval?.low ?? null,
+      cfuHigh: cfuInterval?.high ?? null
+    };
+  }
+
   function snapshot(): ColonyProject {
     return {
       version: 1,
@@ -782,6 +928,8 @@
     if (!sourceHeight) sourceHeight = sourceImage.naturalHeight;
     rebuildWork(false, false);
     markers = project.markers.map((marker) => ({ ...marker }));
+    imageHasColor =
+      params.colorMode === 'blue-white' && workCanvas ? detectImageColor(workCanvas) : false;
     drawOverlay();
     if (!markers.length && autoDetect) scheduleDetect();
   }
@@ -826,6 +974,8 @@
     hasMask = false;
     otsuValue = 0;
     saveStatus = '';
+    imageHasColor = false;
+    batchStatus = '';
     sourceImage = null;
     if (viewCanvas) {
       viewCanvas.width = 1;
@@ -877,6 +1027,128 @@
     }
   }
 
+  async function exportStatisticsCsv() {
+    if (!markers.length) return;
+    busy = 'export';
+    try {
+      const bytes = new TextEncoder().encode(
+        statisticsToCsv([statisticsRow(projectBaseName(imageName))])
+      );
+      await saveBytes(`${baseName()}_statistics.csv`, bytes, 'text');
+    } catch {
+      toast(false, m.colonyExportFailed());
+    } finally {
+      busy = '';
+    }
+  }
+
+  async function exportReproBundle() {
+    if (!hasImage || !processedCanvas || !maskPlane || reproBusy) return;
+    reproBusy = true;
+    try {
+      const annotated = await annotatedPngBytes(processedCanvas, markers, numbering, dpi, showNumbers);
+      const mask = await maskPngBytes(maskPlane.mask, maskPlane.width, maskPlane.height, dpi);
+      const result = await saveReproBundle({
+        tool: 'Colony counter',
+        title: colonyProjectName(snapshot(), m.toolsColonyTitle()),
+        files: [
+          { name: `${baseName()}_annotated_${dpi}dpi.png`, mime: 'image/png', data: annotated },
+          { name: `${baseName()}_mask_${dpi}dpi.png`, mime: 'image/png', data: mask },
+          { name: `${baseName()}_markers.csv`, mime: 'text/csv', data: markersToCsv(markers, numbering) },
+          {
+            name: `${baseName()}_statistics.csv`,
+            mime: 'text/csv',
+            data: statisticsToCsv([statisticsRow(projectBaseName(imageName))])
+          }
+        ],
+        parameters: {
+          image: {
+            name: imageName,
+            width: sourceWidth,
+            height: sourceHeight,
+            workWidth: workInfo?.width ?? 0,
+            workHeight: workInfo?.height ?? 0
+          },
+          rotate,
+          crop: { ...crop },
+          adjust: { ...adjust },
+          detection: { ...params },
+          otsu: otsuValue,
+          threshold: detectedThreshold,
+          polarity: resolvedPolarity,
+          dpi,
+          dilutionFactor,
+          platedVolume,
+          count: stats.included,
+          countCi95: countCi,
+          cfu,
+          cfuCi95: cfuInterval,
+          classCounts: { ...classCounts }
+        },
+        methods:
+          'Colonies were segmented from the plate image with SPICE GUI using Gaussian pre-blurring, Otsu or manual thresholding, connected-component analysis and optional distance-transform watershed splitting for touching colonies. Area and circularity filters were applied exactly as recorded in parameters.json. Markers were reviewed in the editor; excluded markers remain in the marker CSV. Blue/white classes, when enabled, come from mean RGB and HSV hue measured on the original color image, with user overrides recorded in the class_manual column. The count and CFU/mL intervals are exact Poisson 95% intervals (Garwood).',
+        project: snapshot()
+      });
+      if (result.ok) toast(true, m.colonyReproDone());
+      else if (!result.canceled) toast(false, m.colonyReproFailed());
+    } catch {
+      toast(false, m.colonyReproFailed());
+    } finally {
+      reproBusy = false;
+    }
+  }
+
+  async function onBatchFiles(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = imageFiles(Array.from(input.files ?? []));
+    input.value = '';
+    if (files.length === 0) {
+      toast(false, m.colonyBatchEmpty());
+      return;
+    }
+    if (files.length > MAX_BATCH_PLATES) {
+      pushToast('warn', title(), m.colonyBatchCap({ max: MAX_BATCH_PLATES }));
+    }
+    batchProgress = {
+      running: true,
+      done: 0,
+      total: Math.min(files.length, MAX_BATCH_PLATES),
+      current: files[0].name
+    };
+    batchStatus = '';
+    try {
+      const input: ColonyBatchInput = {
+        params: { ...params },
+        adjust: { ...adjust },
+        dpi,
+        showNumbers,
+        dilutionFactor: Number(dilutionFactor),
+        platedVolume: Number(platedVolume)
+      };
+      const report = (done: number, total: number, name: string) => {
+        batchProgress = { running: true, done, total, current: name };
+      };
+      const result = await runBatchJob<ColonyBatchResult>({
+        createWorker: () => new Worker(new URL('./batch.worker.ts', import.meta.url), { type: 'module' }),
+        files,
+        payload: input,
+        onProgress: (p) => report(p.done, p.total, p.name),
+        fallback: () => runColonyBatch(files, input, report),
+      });
+      const saved = await saveZip(`${fileBaseName(files[0].name, 'colony')}-batch.zip`, result.entries);
+      if (saved.ok) {
+        batchStatus = m.colonyBatchDone({ ok: result.processed, failed: result.failed });
+        toast(true, batchStatus);
+      } else if (saved.error) {
+        toast(false, m.colonyBatchFailed({ message: saved.error }));
+      }
+    } catch (error) {
+      toast(false, m.colonyBatchFailed({ message: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      batchProgress = { running: false, done: batchProgress.done, total: batchProgress.total, current: '' };
+    }
+  }
+
   // ------------------------------------------------------------- autosave
 
   $effect(() => {
@@ -901,20 +1173,55 @@
     }, 800);
   });
 
+  // Write the live annotation back into the active project document. Debounced
+  // so marker dragging does not persist the image on every pointer move.
+  $effect(() => {
+    if (!hydrated || handoffLoading) return;
+    if (projectStore.activeDocKind !== 'colony') return;
+    if (!imageDataUrl || !workInfo) return;
+    const project = snapshot();
+    const timer = setTimeout(() => {
+      if (projectStore.activeDocKind === 'colony') projectStore.commitDoc('colony', project);
+    }, 500);
+    return () => clearTimeout(timer);
+  });
+
   onMount(() => {
     const observer = new ResizeObserver(() => fitDisplay());
     if (stageEl) observer.observe(stageEl);
     void (async () => {
-      const saved = loadSnapshot();
-      if (saved && saved.imageDataUrl) {
-        try {
-          await applyProject(saved);
-          pushToast('info', title(), m.colonyRestored());
-        } catch {
-          /* ignore a corrupt snapshot */
+      handoffLoading = true;
+      ensureProjectLoaded();
+      const handoff = takeToolHandoff('colony');
+      let openedFromProject = false;
+      if (handoff?.type === 'open') {
+        const project = normalizeColonyPayload(handoff.payload);
+        if (project) {
+          try {
+            await applyProject(project);
+            pushToast('info', title(), m.colonyProjectImported());
+            openedFromProject = true;
+          } catch {
+            pushToast('error', title(), m.colonyProjectInvalid());
+          }
+        } else {
+          pushToast('error', title(), m.colonyProjectInvalid());
+        }
+      }
+      if (!openedFromProject) {
+        const saved = loadSnapshot();
+        if (saved && saved.imageDataUrl) {
+          try {
+            await applyProject(saved);
+            pushToast('info', title(), m.colonyRestored());
+          } catch {
+            /* ignore a corrupt snapshot */
+          }
         }
       }
       hydrated = true;
+      handoffLoading = false;
+      if (handoff?.type === 'capture') await captureToProject();
     })();
     return () => {
       observer.disconnect();
@@ -949,6 +1256,22 @@
     style="display:none"
     onchange={onPickProject}
   />
+  <input
+    bind:this={batchInput}
+    type="file"
+    multiple
+    accept="image/png,image/jpeg,image/webp,image/tiff,.tif,.tiff"
+    style="display:none"
+    onchange={onBatchFiles}
+  />
+
+  <ToolProjectBar
+    kind="colony"
+    getPayload={() => snapshot()}
+    getName={() => colonyProjectName(snapshot(), m.toolsColonyTitle())}
+    getPreview={projectPreview}
+    getSummary={projectSummaryText}
+  />
 
   <div class="colony-toolbar">
     <button class="pix-btn" onclick={() => imageInput?.click()} disabled={busy !== ''}>
@@ -961,7 +1284,26 @@
     >
       <Wand2 size={12} /> {busy === 'detect' ? m.colonyDetecting() : m.colonyDetect()}
     </button>
+    <button
+      class="pix-btn"
+      disabled={busy !== '' || batchProgress.running}
+      title={m.colonyBatchHint({ max: MAX_BATCH_PLATES })}
+      onclick={() => batchInput?.click()}
+    >
+      <Images size={12} /> {m.colonyBatch()}
+    </button>
     <span class="spacer"></span>
+    {#if batchProgress.running}
+      <span class="batch-status">
+        {m.colonyBatchRunning({
+          done: batchProgress.done,
+          total: batchProgress.total,
+          name: batchProgress.current
+        })}
+      </span>
+    {:else if batchStatus}
+      <span class="batch-status">{batchStatus}</span>
+    {/if}
     <button class="pix-btn" onclick={() => projectInput?.click()}>
       <FolderOpen size={12} /> {m.colonyOpenProject()}
     </button>
@@ -1257,6 +1599,42 @@
       </details>
 
       <details open>
+        <summary><Palette size={11} /> {m.colonyColorSection()}</summary>
+        <div class="sec-body">
+          <label class="field">
+            {m.colonyColorMode()}
+            <select
+              class="pix-input"
+              value={params.colorMode}
+              onchange={(event) =>
+                onColorModeChange((event.currentTarget as HTMLSelectElement).value as ColonyColorMode)}
+            >
+              <option value="off">{m.colonyColorOff()}</option>
+              <option value="blue-white">{m.colonyColorBlueWhite()}</option>
+            </select>
+          </label>
+          <div class="hint">{m.colonyColorHint()}</div>
+          {#if colorModeOn}
+            {#if !imageHasColor}
+              <div class="warn-line">{m.colonyColorUnavailable()}</div>
+            {/if}
+            <div class="meta-line">
+              {m.colonyClassCounts({
+                blue: classCounts.blue,
+                white: classCounts.white,
+                unclassified: classCounts.unclassified
+              })}
+            </div>
+            <div class="legend">
+              <span class="legend-item"><i class="dot blue"></i>{m.colonyClassBlue()}</span>
+              <span class="legend-item"><i class="dot white"></i>{m.colonyClassWhite()}</span>
+              <span class="legend-item"><i class="dot unclassified"></i>{m.colonyClassUnclassified()}</span>
+            </div>
+          {/if}
+        </div>
+      </details>
+
+      <details open>
         <summary><ScanLine size={11} /> {m.colonyManualSection()}</summary>
         <div class="sec-body">
           <div class="hint">{m.colonyClickAdd()}</div>
@@ -1280,6 +1658,48 @@
                 <span>{m.colonyMarkerCircularity()}</span>
                 <strong>{selected.circularity.toFixed(2)}</strong>
               </div>
+              {#if colorModeOn}
+                <div class="stat-row">
+                  <span>{m.colonyMarkerClass()}</span>
+                  <strong>{classLabel(selected.colonyClass)}</strong>
+                </div>
+                {#if selected.hue >= 0}
+                  <div class="stat-row">
+                    <span>{m.colonyMarkerRgb()}</span>
+                    <strong>
+                      {selected.meanR.toFixed(0)}, {selected.meanG.toFixed(0)}, {selected.meanB.toFixed(0)}
+                    </strong>
+                  </div>
+                  <div class="stat-row">
+                    <span>{m.colonyMarkerHue()}</span>
+                    <strong>{selected.hue.toFixed(0)}° · {selected.saturation.toFixed(2)}</strong>
+                  </div>
+                {/if}
+                <div class="btn-row">
+                  <button
+                    class="pix-btn small"
+                    class:active={selected.colonyClass === 'blue'}
+                    onclick={() => setSelectedClass('blue')}
+                  >
+                    {m.colonyClassBlue()}
+                  </button>
+                  <button
+                    class="pix-btn small"
+                    class:active={selected.colonyClass === 'white'}
+                    onclick={() => setSelectedClass('white')}
+                  >
+                    {m.colonyClassWhite()}
+                  </button>
+                  <button
+                    class="pix-btn small"
+                    class:active={selected.colonyClass === 'unclassified'}
+                    onclick={() => setSelectedClass('unclassified')}
+                  >
+                    {m.colonyClassUnclassified()}
+                  </button>
+                </div>
+                <div class="hint">{m.colonyClassManualHint()}</div>
+              {/if}
               <div class="btn-row">
                 <button class="pix-btn small" class:ok={!selected.included} onclick={toggleSelected}>
                   {selected.included ? m.colonyExclude() : m.colonyInclude()}
@@ -1364,6 +1784,12 @@
             <span class="count-label">{m.colonyCount()}</span>
             <span class="count-big">{stats.included}</span>
           </div>
+          <div class="ci-line">
+            {m.colonyCountCi({
+              low: formatScientific(countCi.low),
+              high: formatScientific(countCi.high)
+            })}
+          </div>
           <div class="stat-row">
             <span>{m.colonyIncluded()}</span>
             <strong class="ok-text">{stats.included}</strong>
@@ -1372,6 +1798,20 @@
             <span>{m.colonyExcluded()}</span>
             <strong class="bad-text">{stats.excluded}</strong>
           </div>
+          {#if colorModeOn}
+            <div class="stat-row">
+              <span>{m.colonyClassBlue()}</span>
+              <strong>{classCounts.blue}</strong>
+            </div>
+            <div class="stat-row">
+              <span>{m.colonyClassWhite()}</span>
+              <strong>{classCounts.white}</strong>
+            </div>
+            <div class="stat-row">
+              <span>{m.colonyClassUnclassified()}</span>
+              <strong>{classCounts.unclassified}</strong>
+            </div>
+          {/if}
           <div class="stat-row">
             <span>{m.colonyMeanArea()}</span>
             <strong>{formatArea(stats.meanArea)} {m.colonyAreaUnit()}</strong>
@@ -1426,7 +1866,16 @@
             <span>{m.colonyCfuResult()}</span>
             <strong>{formatScientific(cfu)}</strong>
           </div>
-          {#if cfu === null}<div class="warn-line">{m.colonyCfuInvalid()}</div>{/if}
+          {#if cfu === null}
+            <div class="warn-line">{m.colonyCfuInvalid()}</div>
+          {:else}
+            <div class="ci-line">
+              {m.colonyCfuCi({
+                low: formatScientific(cfuInterval?.low ?? null),
+                high: formatScientific(cfuInterval?.high ?? null)
+              })}
+            </div>
+          {/if}
           <div class="hint">{m.colonyCfuFormula()}</div>
         </div>
       </details>
@@ -1450,9 +1899,21 @@
           <button class="pix-btn" disabled={!markers.length || busy !== ''} onclick={exportCsv}>
             <Download size={11} /> {m.colonyExportCsv()}
           </button>
+          <button class="pix-btn" disabled={!markers.length || busy !== ''} onclick={exportStatisticsCsv}>
+            <Download size={11} /> {m.colonyExportStats()}
+          </button>
+          <button
+            class="pix-btn"
+            disabled={!hasImage || !maskPlane || reproBusy}
+            onclick={exportReproBundle}
+          >
+            <Download size={11} /> {reproBusy ? m.colonyReproBusy() : m.colonyReproBundle()}
+          </button>
           <div class="hint">{m.colonyExportHint()}</div>
           <div class="hint">{m.colonyMaskHint()}</div>
           <div class="hint">{m.colonyCsvHint()}</div>
+          <div class="hint">{m.colonyStatsHint()}</div>
+          <div class="hint">{m.colonyReproHint()}</div>
           <div class="hint">{m.colonyProjectHint()}</div>
         </div>
       </details>
@@ -1494,6 +1955,8 @@
   .pix-btn.active { border-color: var(--pix-cyan); color: var(--pix-cyan); background: var(--pix-bg-2); }
   .spacer { flex: 1; }
   .save-status { font-size: 8.5px; color: var(--pix-green); }
+  .batch-status { font-size: 8.5px; color: var(--pix-cyan); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ci-line { font-size: 8.5px; color: var(--pix-fg-dim); line-height: 1.45; }
   .colony-body { flex: 1; display: flex; gap: 8px; min-height: 0; }
   .colony-side {
     width: 318px;
@@ -1578,6 +2041,9 @@
   .dot.included { border-color: var(--pix-green); }
   .dot.excluded { border-color: var(--pix-red); }
   .dot.manual { border-color: var(--pix-cyan); }
+  .dot.blue { border-color: #5aa9ff; }
+  .dot.white { border-color: #e8e8e8; background: rgba(232, 232, 232, 0.25); }
+  .dot.unclassified { border-color: var(--pix-fg-dim); }
   .colony-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .stage-head {
     display: flex;

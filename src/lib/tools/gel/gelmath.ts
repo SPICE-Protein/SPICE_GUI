@@ -359,7 +359,9 @@ function leastSquares(points: { y: number; size: number }[], degree: 1 | 2): Pol
     sxy += dx * dy;
     sx3 += dx ** 3;
     sx4 += dx ** 4;
-    sx2y += dx * dx * dy;
+    // Normal-equation RHS for the quadratic term is Σ(dx² · y), not Σ(dx² · dy).
+    // Using the mean-centred dy silently drops meanY·S2 and corrupts the fit.
+    sx2y += dx * dx * ys[i];
   }
   let a: number;
   let b: number;

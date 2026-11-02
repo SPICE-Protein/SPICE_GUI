@@ -64,6 +64,7 @@ export function historyKey(project: AnnotateProject): string {
       offsetY: panel.offsetY,
       brightness: panel.brightness,
       contrast: panel.contrast,
+      channels: panel.channels,
       calibration: panel.calibration,
     })),
     annotations: project.annotations,

@@ -6,6 +6,7 @@ import { figureToSvg, renderUncropped } from './render';
 import type { GelProject } from './types';
 import { ladderById, type LadderDef } from './ladders';
 import { polyAt } from './gelmath';
+import { canvasToPngBytes } from '$lib/tools/shared/canvas';
 
 // ---------------------------------------------------------------- utilities
 
@@ -34,12 +35,6 @@ export function canvasToDataUrl(canvas: HTMLCanvasElement, type = 'image/png'): 
   return canvas.toDataURL(type);
 }
 
-async function canvasToBytes(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-  const blob: Blob = await new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encoding failed'))), 'image/png'),
-  );
-  return new Uint8Array(await blob.arrayBuffer());
-}
 
 // ------------------------------------------------------------------- PNG
 
@@ -77,7 +72,7 @@ export async function exportPngWithMetadata(
   dpi: number,
   summary: string,
 ): Promise<Uint8Array> {
-  const png = await canvasToBytes(canvas);
+  const png = await canvasToPngBytes(canvas);
   const chunks: Uint8Array[] = [];
   const phys = new Uint8Array(9);
   const pv = new DataView(phys.buffer);

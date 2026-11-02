@@ -2,6 +2,14 @@
 // crop-free pixel adjustments and the grayscale planes used by detection.
 import type { GelExposure, GelProject } from './types';
 import { toGrayPlane } from './gelmath';
+import {
+  bytesToDataUrl,
+  canvasToDataUrl,
+  createCanvas,
+  loadRasterImage,
+  rasterHeight,
+  rasterWidth,
+} from '$lib/tools/shared/canvas';
 
 export interface ProcessedImage {
   canvas: HTMLCanvasElement;
@@ -15,18 +23,12 @@ export interface ProcessedImage {
 
 const imageCache = new Map<string, HTMLImageElement>();
 
-export function loadImageElement(src: string): Promise<HTMLImageElement> {
+export async function loadImageElement(src: string): Promise<HTMLImageElement> {
   const cached = imageCache.get(src);
-  if (cached && cached.complete) return Promise.resolve(cached);
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      imageCache.set(src, img);
-      resolve(img);
-    };
-    img.onerror = () => reject(new Error('Image decode failed'));
-    img.src = src;
-  });
+  if (cached && (cached.complete || !('naturalWidth' in cached))) return cached;
+  const img = await loadRasterImage(src);
+  imageCache.set(src, img);
+  return img;
 }
 
 function isTiff(file: File): boolean {
@@ -44,8 +46,8 @@ export async function decodeExposure(file: File): Promise<GelExposure> {
       id: `exp_${Math.random().toString(36).slice(2, 10)}`,
       name: file.name,
       dataUrl,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
+      width: rasterWidth(img),
+      height: rasterHeight(img),
       mime: file.type || 'image/png',
       originalBase64: bytesToBase64(bytes),
     };
@@ -63,9 +65,7 @@ export async function decodeExposure(file: File): Promise<GelExposure> {
   const rgba = UTIF.toRGBA8(ifd);
   const width = ifd.width as number;
   const height = ifd.height as number;
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d')!;
   const out = ctx.createImageData(width, height);
   out.data.set(rgba);
@@ -73,7 +73,7 @@ export async function decodeExposure(file: File): Promise<GelExposure> {
   return {
     id: `exp_${Math.random().toString(36).slice(2, 10)}`,
     name: file.name,
-    dataUrl: canvas.toDataURL('image/png'),
+    dataUrl: await canvasToDataUrl(canvas),
     width,
     height,
     mime: 'image/tiff',
@@ -87,16 +87,6 @@ export function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
   return btoa(binary);
-}
-
-export async function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
-  const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
 }
 
 /** Quality proxy for picking the best exposure: signal spread minus clipping. */
@@ -115,8 +105,8 @@ export function exposureScore(processed: ProcessedImage): number {
 }
 
 export function renderProcessed(exposure: GelExposure, project: GelProject, img: HTMLImageElement): ProcessedImage {
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
+  const w = rasterWidth(img);
+  const h = rasterHeight(img);
   const orient = ((project.orient % 4) + 4) % 4;
   const swap = orient % 2 === 1;
   const ow = swap ? h : w;
@@ -126,7 +116,7 @@ export function renderProcessed(exposure: GelExposure, project: GelProject, img:
   const sin = Math.abs(Math.sin(rad));
   const rw = Math.max(1, Math.round(ow * cos + oh * sin));
   const rh = Math.max(1, Math.round(ow * sin + oh * cos));
-  const canvas = document.createElement('canvas');
+  const canvas = createCanvas();
   canvas.width = rw;
   canvas.height = rh;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
@@ -186,7 +176,7 @@ export function cropRect(project: GelProject, width: number, height: number) {
 /** Crop to a new canvas for display and figure preview. */
 export function cropCanvas(processed: HTMLCanvasElement, project: GelProject): HTMLCanvasElement {
   const { sx, sy, sw, sh } = cropRect(project, processed.width, processed.height);
-  const out = document.createElement('canvas');
+  const out = createCanvas();
   out.width = sw;
   out.height = sh;
   out.getContext('2d')!.drawImage(processed, sx, sy, sw, sh, 0, 0, sw, sh);

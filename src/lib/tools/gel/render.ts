@@ -1,6 +1,7 @@
 // Raster and vector rendering of a FigureLayout.
 import type { FigureItem, FigureLayout, TextStyle } from './figure';
 import type { GelProject } from './types';
+import { createCanvas } from '$lib/tools/shared/canvas';
 
 function withText(ctx: CanvasRenderingContext2D, style: TextStyle) {
   ctx.font = `${style.italic ? 'italic ' : ''}${style.bold ? 'bold ' : ''}${style.size}px ${style.family}`;
@@ -123,7 +124,7 @@ export function rasterizeFigure(
   dpi: number,
 ): HTMLCanvasElement {
   const scale = Math.max(1, dpi / 96);
-  const canvas = document.createElement('canvas');
+  const canvas = createCanvas();
   canvas.width = Math.round(layout.width * scale);
   canvas.height = Math.round(layout.height * scale);
   const ctx = canvas.getContext('2d')!;
@@ -218,7 +219,7 @@ export function figureToSvg(
 
 /** Full processed image with the crop frame, well numbers and splice marks. */
 export function renderUncropped(project: GelProject, processed: HTMLCanvasElement, scale = 1): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
+  const canvas = createCanvas();
   canvas.width = Math.round(processed.width * scale);
   canvas.height = Math.round(processed.height * scale);
   const ctx = canvas.getContext('2d')!;

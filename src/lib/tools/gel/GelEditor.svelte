@@ -10,7 +10,7 @@
     Upload, Download, Save, FolderOpen, Plus, Trash2, RotateCcw, RotateCw,
     FlipHorizontal, FlipVertical, Wand2, Crosshair, Eraser, Star, Eye, EyeOff,
     Undo2, Redo2, X, Square, Type, ArrowLeft, ArrowUp,
-    Layers, Clock, FileText, Presentation, ScanLine
+    Layers, Clock, FileText, Presentation, ScanLine, Package
   } from 'lucide-svelte';
   import {
     emptyProject, activeExposure as activeExposureOf, newId, newLaneId,
@@ -41,6 +41,14 @@
     renameRecent, listStyles, saveStyle, removeStyle, loadLadderLibrary, saveLadderLibrary,
     type RecentEntry, type GelStyle
   } from './storage';
+  import { projectStore } from '$lib/project/store.svelte.ts';
+  import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
+  import { ensureProjectLoaded, takeToolHandoff, finishToolCapture } from '$lib/tools/shared/projectBridge';
+  import { canvasPreview } from '$lib/tools/shared/preview';
+  import { saveReproBundle } from '$lib/repro/bundle';
+  import { sanitizeGelProject, gelSummary, gelProjectPreview, gelParameters, gelCsv, gelMethods } from './projectDoc';
+  import { g } from './messages';
+  import GelBatch from './GelBatch.svelte';
 
   // ---------------------------------------------------------------- state
 
@@ -105,6 +113,10 @@
   let quotaWarned = false;
   let refreshRaf: number | null = null;
   let generation = 0;
+  // SPICE_PROJECT bridge: suppress write-back while a handoff payload is
+  // being decoded, and remember the last revision committed to the store.
+  let handoffLoading = $state(true);
+  let lastCommittedRevision = '';
 
   const exposure = $derived(activeExposureOf(project));
   const hasImage = $derived(!!exposure);
@@ -125,6 +137,31 @@
   });
   const emptyLaneCount = $derived(project.lanes.filter((l) => !l.removed && l.bands.length === 0).length);
 
+  /** Change token that excludes the (potentially multi-megabyte) image data
+   *  URLs, so write-back does not stringify them on every slider tick. */
+  function projectRevision(): string {
+    const exposures = project.exposures
+      .map((e) => `${e.id}:${e.name}:${e.width}x${e.height}:${e.mime}:${e.sha256 ?? ''}`)
+      .join('|');
+    return `${JSON.stringify({ ...project, exposures: [] })}#${exposures}`;
+  }
+
+  // Keep the open SPICE_PROJECT document in sync with the live editor state.
+  // Debounced so dragging a slider produces one write, and suppressed while a
+  // handoff payload is being loaded.
+  $effect(() => {
+    if (handoffLoading) return;
+    if (projectStore.activeDocKind !== 'gel') return;
+    const revision = projectRevision();
+    if (revision === lastCommittedRevision) return;
+    const timer = setTimeout(() => {
+      if (projectStore.activeDocKind !== 'gel') return;
+      lastCommittedRevision = revision;
+      projectStore.commitDoc('gel', plainClone(project));
+    }, 350);
+    return () => clearTimeout(timer);
+  });
+
   // ------------------------------------------------------------- lifecycle
 
   onMount(() => {
@@ -137,16 +174,42 @@
     }
     recents = listRecent();
     styles = listStyles();
-    const snap = loadSnapshot();
-    if (snap) {
-      project = snap;
-      void loadActiveImage();
-    }
-    const library = loadLadderLibrary();
-    if (library.custom.length) {
-      const ids = new Set(project.customLadders.map((l) => l.id));
-      project.customLadders = [...project.customLadders, ...library.custom.filter((l) => !ids.has(l.id))];
-      project.favorites = [...new Set([...project.favorites, ...library.favorites])];
+    ensureProjectLoaded();
+    const handoff = takeToolHandoff('gel');
+    if (handoff?.type === 'open') {
+      // The hub opened a stored gel document: the handoff payload wins over
+      // the local snapshot and is validated through the tool's own schema.
+      const next = sanitizeGelProject(handoff.payload);
+      if (next) {
+        project = next;
+        selectedLaneId = null;
+        selectedBand = null;
+        selectedAnnotationId = null;
+        applyLadderLibrary();
+        schedulePersist();
+        void (async () => {
+          try {
+            await loadActiveImage();
+            toast(true, m.gelProjectOpened());
+          } catch (err) {
+            toast(false, err instanceof Error ? err.message : String(err));
+          } finally {
+            lastCommittedRevision = projectRevision();
+            handoffLoading = false;
+          }
+        })();
+      } else {
+        // Do not write the fallback snapshot into a document that failed to
+        // load; detach the active doc and keep editing locally.
+        toast(false, m.gelProjectInvalid());
+        projectStore.activeDocId = null;
+        hydrateFromSnapshot();
+        handoffLoading = false;
+      }
+    } else {
+      hydrateFromSnapshot();
+      handoffLoading = false;
+      if (handoff?.type === 'capture') void captureToProject();
     }
     const ro = new ResizeObserver(() => {
       drawSource();
@@ -160,6 +223,68 @@
       window.removeEventListener('keydown', onKeydown);
     };
   });
+
+  /** Restore the tool snapshot and merge the browser ladder library. */
+  function hydrateFromSnapshot() {
+    const snap = loadSnapshot();
+    if (snap) {
+      project = snap;
+      void loadActiveImage();
+    }
+    applyLadderLibrary();
+  }
+
+  function applyLadderLibrary() {
+    const library = loadLadderLibrary();
+    if (!library.custom.length) return;
+    const ids = new Set(project.customLadders.map((l) => l.id));
+    project.customLadders = [...project.customLadders, ...library.custom.filter((l) => !ids.has(l.id))];
+    project.favorites = [...new Set([...project.favorites, ...library.favorites])];
+  }
+
+  // ---------------------------------------------------- SPICE_PROJECT bridge
+
+  function projectPayload(): GelProject {
+    return plainClone(project);
+  }
+
+  function projectName(): string {
+    return project.imageName || m.toolsGelTitle();
+  }
+
+  function projectSummary(): string {
+    return gelSummary(project);
+  }
+
+  /** Thumbnail for the project hub: current figure when possible, otherwise a
+   *  fresh render from the stored project. */
+  async function projectPreview(): Promise<string | null> {
+    if (processed && layout) {
+      try {
+        return canvasPreview(rasterizeFigure(layout, processed.canvas, 96)) || null;
+      } catch {
+        /* fall through to a fresh render */
+      }
+    }
+    return gelProjectPreview(project);
+  }
+
+  /** Handoff from the project hub: store the current editor state as a doc. */
+  async function captureToProject() {
+    if (!projectStore.hasOpenProject || !hasImage) {
+      handoffLoading = false;
+      return;
+    }
+    try {
+      const payload = plainClone(project);
+      const preview = await projectPreview();
+      const id = finishToolCapture('gel', projectName(), payload, preview ?? undefined, gelSummary(project));
+      if (!id) handoffLoading = false;
+    } catch (err) {
+      toast(false, err instanceof Error ? err.message : String(err));
+      handoffLoading = false;
+    }
+  }
 
   async function loadActiveImage() {
     const exp = activeExposureOf(project);
@@ -1804,6 +1929,48 @@
     await saveText(`${projectBase()}_processing_log.json`, JSON.stringify(log, null, 2), m.gelLogSaved());
   }
 
+  /** Reproducible bundle: figure PNG + editable SVG + band CSV + the real
+   *  project and settings, with parameters/methods/manifest added by the
+   *  shared builder. */
+  async function exportReproNow() {
+    if (!processed) {
+      toast(false, g.gelReproFailed());
+      return;
+    }
+    busy = g.gelReproBusy();
+    try {
+      const fig = layout ?? buildFigure(project, processed.canvas);
+      const canvas = rasterizeFigure(fig, processed.canvas, exportDpi);
+      const ladder = ladderById(project.fit?.ladderId ?? project.ladderId, project.customLadders);
+      const png = await exportPngWithMetadata(
+        canvas,
+        exportDpi,
+        summaryText(project, processed.canvas, ladder),
+      );
+      const svg = figureToSvg(fig, processed.canvas.toDataURL('image/png'), processed.width, processed.height);
+      const base = projectBase();
+      const result = await saveReproBundle({
+        tool: 'gel',
+        title: projectBase() || m.toolsGelTitle(),
+        files: [
+          { name: `${base}_figure_${exportDpi}dpi.png`, mime: 'image/png', data: png },
+          { name: `${base}_figure.svg`, mime: 'image/svg+xml', data: svg },
+          { name: `${base}_bands.csv`, mime: 'text/csv', data: gelCsv(project) },
+        ],
+        parameters: gelParameters(project, exportDpi),
+        methods: gelMethods(project),
+        project: plainClone(project),
+        notes: project.notes || undefined,
+      });
+      if (result.ok) toast(true, g.gelReproSaved());
+      else if (!result.canceled && result.error) toast(false, result.error);
+    } catch (err) {
+      toast(false, err instanceof Error ? err.message : String(err));
+    } finally {
+      busy = '';
+    }
+  }
+
   function applyResolutionFix() {
     if (!processed) return;
     const visW = 1 - project.crop.left - project.crop.right;
@@ -2018,6 +2185,13 @@
 </script>
 
 <div class="gel-page" role="application" aria-label={m.gelOverlayLabel()} ondragover={(e) => e.preventDefault()} ondrop={onDrop}>
+  <ToolProjectBar
+    kind="gel"
+    getPayload={projectPayload}
+    getName={projectName}
+    getPreview={projectPreview}
+    getSummary={projectSummary}
+  />
   <input bind:this={imageInput} type="file" accept="image/png,image/jpeg,image/bmp,image/webp,image/gif,image/tiff,.tif,.tiff" multiple style="display:none" onchange={onPickImages} />
   <input bind:this={projectInput} type="file" accept=".json,.gelfig,application/json" style="display:none" onchange={onPickProject} />
   <input bind:this={ladderInput} type="file" accept=".json,application/json" style="display:none" onchange={onPickLadderLibrary} />
@@ -2444,6 +2618,7 @@
             <button class="pix-btn" disabled={!hasImage} onclick={exportUncroppedNow}>{m.gelExportUncropped()}</button>
             <button class="pix-btn" disabled={!hasImage} onclick={exportOriginalNow}>{m.gelExportOriginal()}</button>
             <button class="pix-btn" disabled={!hasImage} onclick={exportLogNow}><FileText size={11} /> {m.gelExportLog()}</button>
+            <button class="pix-btn" disabled={!hasImage || !!busy} onclick={exportReproNow}><Package size={11} /> {g.gelReproBundle()}</button>
           </div>
           <div class="preflight">
             <div class="pix-dim tiny">{m.gelPreflight()}</div>
@@ -2466,6 +2641,13 @@
               {/each}
             {/if}
           </div>
+        </div>
+      </details>
+
+      <details>
+        <summary><Layers size={11} /> {g.gelBatchTitle()}</summary>
+        <div class="sec-body">
+          <GelBatch customLadders={project.customLadders} exportDpi={exportDpi} />
         </div>
       </details>
     </aside>
