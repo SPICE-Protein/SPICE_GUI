@@ -1823,17 +1823,19 @@
   .sample-head,
   .sample-row {
     display: grid;
-    grid-template-columns: minmax(70px, 1.2fr) minmax(54px, 1fr) 48px 50px 44px;
+    grid-template-columns: minmax(56px, 1fr) minmax(44px, 0.9fr) 38px 60px 44px;
     gap: 4px;
     align-items: center;
   }
   .sample-head {
     padding: 0 1px;
-    font-size: 8px;
-    letter-spacing: 0.5px;
+    font-size: 7px;
+    letter-spacing: 0;
     text-transform: uppercase;
     color: var(--pix-fg-dim);
   }
+  .sample-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sample-head span:nth-child(4), .sample-head span:nth-child(5) { text-align: center; }
   .sample-list {
     display: flex;
     flex-direction: column;

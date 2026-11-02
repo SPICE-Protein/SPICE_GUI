@@ -20,6 +20,10 @@ Built with SvelteKit (Svelte 5), Tauri v2, Mol\*, and a pixel-art UI theme. Full
 
 ![Project hub](images/project.png)
 
+**Bench tools** — seven focused utilities for the figures and analyses between experiments: gel and blot figures, qPCR, plate maps, colony counts, image panels, and trees.
+
+![Bench tools](images/tools.png)
+
 ## Workspaces
 
 ### Protein workbench — `/protein`
@@ -123,6 +127,73 @@ Built with SvelteKit (Svelte 5), Tauri v2, Mol\*, and a pixel-art UI theme. Full
 - Capture-and-carry handoff: workspaces snapshot into the project or open embedded docs with a live write-back banner; project registry and session resume survive restarts; dirty LED and Ctrl+S throughout.
 - **Presenter mode** — split any journal page into slides by headings and `---` rules; quote blocks become speaker notes. Full grammar: task lists, tables with alignment, footnotes, highlights, sub/superscripts, presenter-only comments. Audience and presenter views, next-slide preview, elapsed timer, keyboard navigation, fullscreen.
 
+### Bench tools — `/tools`
+
+Seven standalone utilities, each with its own editor, local autosave, re-openable JSON project, and publication-ready export. Images never leave the machine.
+
+#### Gel figure — `/tools/gel`
+
+![Gel figure tool](images/tools-gel.png)
+
+- Auto-straighten, auto-crop, exposure presets, grayscale / invert / brightness / contrast / gamma, 90° rotation, mirroring, and fine rotation.
+- Lane and band detection, with a marker-ladder library: fit the marker lane once, then propagate sizes to every sample lane from the calibration curve (R² reported).
+- Figure composer with lane names and angles, group headers, condition rows, arrows, region boxes, enlarged insets, brackets, side text, captions, and reusable style templates.
+- Pre-flight checks for clipping, effective dpi, font size, and ladder fit; exports PNG / TIFF / SVG / PPTX, the uncropped image, the original file, and a processing log.
+
+#### Western blot densitometry — `/tools/blot`
+
+![Western blot densitometry](images/tools-blot.png)
+
+- Automatic lane and band detection with a morphological baseline, then draggable ROIs and manual band/lane correction.
+- Four background models (ROI ring, lane median, global median, manual), loading-control or total-protein normalization, control groups, and fold change.
+- Saturation flags, per-band net volume, group mean / SD / SEM, and a full quantification table.
+- Annotated PNG and SVG figures, results CSV, and a project file that round-trips image, ROIs, and assignments.
+
+#### qPCR analysis — `/tools/qpcr`
+
+![qPCR analysis](images/tools-qpcr.png)
+
+- Paste or import CSV/TSV, map columns manually, and run in ΔΔCt or standard-curve mode with optional per-target efficiency correction.
+- Reference target, control group, and control sample selection; QC flags for missing Ct, high Ct, replicate SD, outliers, and duplicate wells, with outlier exclusion.
+- Standard-curve fit (slope, intercept, R², efficiency) with interpolated unknowns, ΔCt heatmap, group summaries, and per-replicate detail.
+- Results CSV, chart SVG/PNG at 300 dpi, and a project JSON.
+
+#### Plate layout designer — `/tools/plate`
+
+![Plate layout designer](images/tools-plate.png)
+
+- Six formats from 6 to 384 wells; paste or import samples with groups, colours, and replicate counts.
+- Seeded layout generation with controls, blanks, reserved edge wells, contiguous row / column / block grouping, keep-group-together, and re-randomization.
+- Rule checks for duplicate names, unplaced samples, and well conflicts; inspect or paint individual wells, then correct the map by hand.
+- Plate-map CSV/TSV, SVG, 300 or 600 dpi PNG, and JSON project; autosaves the current layout.
+
+#### Colony counter — `/tools/colony`
+
+![Colony counter](images/tools-colony.png)
+
+- Import, rotate, crop, and adjust plate images, then segment with Otsu thresholding, blur, polarity selection, area / circularity filters, and touching-colony splitting.
+- Manual correction by adding, dragging, including, excluding, or deleting markers, with mask and numbering overlays.
+- Counts, included/excluded totals, mean/median area, mean intensity, and a colony-area histogram; CFU/mL from dilution factor and plated volume.
+- Annotated PNG, mask PNG, marker CSV, and a re-openable project.
+
+#### Image annotator — `/tools/annotate`
+
+![Image annotator](images/tools-annotate.png)
+
+- Compose multi-panel figures from imported images, with per-panel crop, order, duplicate, and image adjustment.
+- Figure layout controls: columns, row/column flow, gap, margin, physical width in mm, panel labels (A/B/C, a/b/c, 1/2/3), font, size, colour, and position.
+- Vector annotations — arrows, rectangles, ellipses, text, calibrated or fixed scale bars, and panel bars — each editable by geometry, colour, fill, and stroke.
+- Autosave plus PNG, SVG, and project JSON export.
+
+#### Phylogenetic tree — `/tools/tree`
+
+![Phylogenetic tree](images/tools-tree.png)
+
+- Newick import with quoted labels, comments, branch lengths, and support values; phylogram, cladogram, and circular layouts with support thresholds, node markers, scale bar, and dark/light themes.
+- Beautify tools: ladderize either direction, sort leaves alphabetically or by group, midpoint rooting, and interactive collapse / expand / rotate clades.
+- Leaf search and path-to-root highlighting, plus CSV/TSV metadata joins with group colours, palettes, and legend; one group can be focused.
+- Export SVG, 300 or 600 dpi PNG, edited or original Newick, and project JSON; session autosave.
+
 ### SPD integration
 
 - **Universal API Token** — mint one at [d.spicebio.top](https://d.spicebio.top) after ORCID login, paste it into *Settings → Public Integrations*, verify. The token inherits your live roles and revokes instantly.
@@ -142,11 +213,11 @@ Built with SvelteKit (Svelte 5), Tauri v2, Mol\*, and a pixel-art UI theme. Full
 ┌──────────────────────────────────────────────────────┐
 │ SvelteKit (Svelte 5 runes) + svelte-multistyle-ui    │
 │ routes: welcome · /protein · /gene · /project ·      │
-│         /settings                                    │
+│         /tools · /settings                           │
 │ lib: backend (invoke wrappers + browser demo mode)   │
 │      gene/ cloning components · project/ SPICE_      │
-│      PROJECT · spd/ client · viewer/ Mol* ·          │
-│      identity/ ORCID · i18n Paraglide                │
+│      PROJECT · tools/ bench editors · spd/ client ·  │
+│      viewer/ Mol* · identity/ ORCID · i18n Paraglide │
 └───────────────────────┬──────────────────────────────┘
                         │ Tauri IPC (invoke)
 ┌───────────────────────▼──────────────────────────────┐
@@ -191,10 +262,11 @@ All visible strings go through Paraglide (`project.inlang/messages/{zh,en,ja,ko,
 ## Repository layout
 
 ```
-src/routes/           five workspaces (welcome, protein, gene, project, settings)
+src/routes/           six areas (welcome, protein, gene, project, tools, settings)
 src/lib/backend/      typed invoke wrappers, browser fallbacks, mmCIF export, demo mode
 src/lib/gene/         cloning UI components (maps, primers, gels, CRISPR, QC)
 src/lib/project/      SPICE_PROJECT store, .spiceproj container, Presenter mode
+src/lib/tools/        gel, blot, qPCR, plate, colony, annotate, and tree editors
 src/lib/spd/          SPD client (transport switch, publish chain, graph DSL)
 src/lib/viewer/       Mol* wrapper and view settings
 src/lib/identity/     ORCID profile and ELN signing identity
