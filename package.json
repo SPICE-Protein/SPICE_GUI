@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "test": "vitest run",
+    "test": "svelte-kit sync && vitest run",
     "tauri": "tauri",
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/clean-inlang-gitignore.mjs",
     "predev": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && node scripts/clean-inlang-gitignore.mjs && node scripts/patch-android-landscape.mjs",
