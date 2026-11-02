@@ -6,6 +6,7 @@
   import { aiState } from '$lib/ui/aiState.svelte.ts';
   import { ArrowLeft, ScanLine } from 'lucide-svelte';
   import GelEditor from '$lib/tools/gel/GelEditor.svelte';
+  import Toaster from '$lib/ui/Toaster.svelte';
 
   onMount(() => {
     aiState.currentWorkspace = 'general';
@@ -21,6 +22,7 @@
     <span class="tool-desc">{m.toolsGelDesc()}</span>
   </header>
   <GelEditor />
+  <Toaster />
 </div>
 
 <style>

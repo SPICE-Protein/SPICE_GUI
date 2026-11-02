@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import * as m from '$lib/paraglide/messages.js';
   import { aiState } from '$lib/ui/aiState.svelte.ts';
-  import { ScanLine, ChevronRight, Wrench } from 'lucide-svelte';
+  import { ScanLine, ChevronRight, Wrench, Activity, BarChart3, Grid3X3, Microscope, ImagePlus, GitBranch } from 'lucide-svelte';
 
   onMount(() => {
     aiState.currentWorkspace = 'general';
@@ -20,6 +20,66 @@
       bg: 'rgba(76, 214, 255, 0.08)',
       href: '/tools/gel',
       icon: ScanLine,
+    },
+    {
+      id: 'blot',
+      title: m.toolsBlotTitle(),
+      desc: m.toolsBlotDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-green)',
+      bg: 'rgba(89, 255, 141, 0.08)',
+      href: '/tools/blot',
+      icon: Activity,
+    },
+    {
+      id: 'qpcr',
+      title: m.toolsQpcrTitle(),
+      desc: m.toolsQpcrDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-accent)',
+      bg: 'rgba(255, 122, 89, 0.08)',
+      href: '/tools/qpcr',
+      icon: BarChart3,
+    },
+    {
+      id: 'plate',
+      title: m.toolsPlateTitle(),
+      desc: m.toolsPlateDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-accent-2)',
+      bg: 'rgba(226, 180, 72, 0.08)',
+      href: '/tools/plate',
+      icon: Grid3X3,
+    },
+    {
+      id: 'colony',
+      title: m.toolsColonyTitle(),
+      desc: m.toolsColonyDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-cyan)',
+      bg: 'rgba(76, 214, 255, 0.08)',
+      href: '/tools/colony',
+      icon: Microscope,
+    },
+    {
+      id: 'annotate',
+      title: m.toolsAnnotateTitle(),
+      desc: m.toolsAnnotateDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-green)',
+      bg: 'rgba(89, 255, 141, 0.08)',
+      href: '/tools/annotate',
+      icon: ImagePlus,
+    },
+    {
+      id: 'tree',
+      title: m.toolsTreeTitle(),
+      desc: m.toolsTreeDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-accent)',
+      bg: 'rgba(255, 122, 89, 0.08)',
+      href: '/tools/tree',
+      icon: GitBranch,
     },
   ]);
 </script>
