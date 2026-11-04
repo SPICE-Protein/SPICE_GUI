@@ -1153,7 +1153,7 @@
 
     <span class="pt-spacer"></span>
 
-    <button class="pix-btn ok" onclick={generateLayout} disabled={samples.length === 0}>
+    <button class="pix-btn ok" data-testid="plate-generate" onclick={generateLayout} disabled={samples.length === 0}>
       <RefreshCw size={12} />
       {generated ? m.plateRegenerate() : m.plateGenerate()}
     </button>
@@ -1182,10 +1182,11 @@
           rows={2}
           placeholder={m.platePastePlaceholder()}
           aria-label={m.platePastePlaceholder()}
+          data-testid="plate-paste"
           bind:value={pasteText}
         ></textarea>
         <div class="pt-row">
-          <button class="pix-btn" onclick={applyPaste} disabled={!pasteText.trim()}>
+          <button class="pix-btn" data-testid="plate-paste-apply" onclick={applyPaste} disabled={!pasteText.trim()}>
             <Plus size={11} />
             {m.platePasteApply()}
           </button>

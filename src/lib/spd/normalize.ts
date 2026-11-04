@@ -2,6 +2,15 @@ import type { SpdEnvironmentInput, SpdModelInput } from './types';
 
 export const DEFAULT_LICENSE = 'CC-BY-4.0' as const;
 
+/** Accept both the full API base (`https://host/api/v1`) and a bare origin
+ *  (`https://host`) so a host pasted into Settings still reaches the routes. */
+export function normalizeSpdBaseUrl(raw: string, fallback: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed || trimmed === '/api/v1') return fallback;
+  const hostOnly = /^(https?:\/\/[^/]+)(\/)?$/i.exec(trimmed);
+  return hostOnly ? `${hostOnly[1]}/api/v1` : trimmed;
+}
+
 export function normalizeSequence(sequence: string): string {
   return sequence.replace(/[\s\d>]+/g, '').toUpperCase();
 }

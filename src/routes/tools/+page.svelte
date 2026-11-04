@@ -84,7 +84,7 @@
   ]);
 </script>
 
-<div class="tools-page">
+<div class="tools-page" data-testid="tools-page">
   <header class="tools-header pix-panel">
     <div class="tools-title">
       <div class="tools-icon"><Wrench size={22} /></div>
@@ -99,7 +99,7 @@
     {#each tools as tool (tool.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="tool-card pix-panel" onclick={() => goto(tool.href)}>
+      <div class="tool-card pix-panel" data-testid="tool-card-{tool.id}" onclick={() => goto(tool.href)}>
         <div class="tool-icon" style="background: {tool.bg}; border-color: {tool.color}; color: {tool.color};">
           <tool.icon size={24} />
         </div>

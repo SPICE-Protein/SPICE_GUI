@@ -1186,7 +1186,7 @@
           <button class="pix-btn tiny" onclick={() => uploadInput?.click()}>
             <Upload size={10} /> {m.treeUploadBtn()}
           </button>
-          <button class="pix-btn tiny" onclick={loadExample}>
+          <button class="pix-btn tiny" data-testid="tree-load-example" onclick={loadExample}>
             {m.treeExampleBtn()}
           </button>
         </div>
@@ -1406,7 +1406,7 @@
             <div class="empty-hint">{m.treeEmptyHint()}</div>
             <div class="empty-btns">
               <button class="pix-btn ok" onclick={() => uploadInput?.click()}><Upload size={12} /> {m.treeUploadBtn()}</button>
-              <button class="pix-btn" onclick={loadExample}>{m.treeExampleBtn()}</button>
+              <button class="pix-btn" data-testid="tree-load-example" onclick={loadExample}>{m.treeExampleBtn()}</button>
             </div>
             <div class="hint">{m.treeDropHint()}</div>
           </div>

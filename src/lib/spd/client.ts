@@ -11,12 +11,15 @@
 // localhost:5173 origin is explicitly allow-listed server-side.
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '$lib/backend/api';
+import { normalizeSpdBaseUrl } from './normalize';
 import type {
-  SpdArtifactInput, SpdArtifactReceipt, SpdClientOptions, SpdEnzymeCreateInput, SpdEnzymeExport,
-  SpdEnvironmentInput, SpdErrorBody, SpdFoldInput, SpdFoldQuery,
-  SpdFoldSummary, SpdGraphData, SpdGraphQuery, SpdHealth, SpdModelInput, SpdProteinInput,
-  SpdSequenceInput, SpdUploadGrant, SpdUserMe, SpdVectorDesign, SpdVectorDetail,
-  SpdVectorReceipt, SpdVectorSummary, SpdVectorValidation,
+  SpdArtifactInput, SpdArtifactReceipt, SpdArtifactRecord, SpdClientOptions, SpdEnzymeCreateInput,
+  SpdEnzymeExport, SpdEnvironmentInput, SpdErrorBody, SpdFoldInput, SpdFoldQuery,
+  SpdFoldRecord, SpdFoldSummary, SpdGeneCreateReceipt, SpdGeneInput, SpdGeneListRow,
+  SpdGeneRecord, SpdGeneRegion, SpdGeneRegionBatchReceipt, SpdGeneRegionInput,
+  SpdGraphData, SpdGraphQuery, SpdHealth, SpdModelInput, SpdProteinInput,
+  SpdRestrictionEnzymeList, SpdRestrictionEnzymeRow, SpdSequenceInput, SpdUploadGrant, SpdUserMe,
+  SpdVectorDesign, SpdVectorDetail, SpdVectorReceipt, SpdVectorSummary, SpdVectorValidation,
 } from './types';
 
 export const SPD_DEFAULT_BASE_URL = 'https://d-api.spicebio.top/api/v1';
@@ -35,22 +38,38 @@ export class SpdApiError extends Error {
   }
 }
 
+/** Unwrap one named resource from an envelope payload, tolerating a server
+ *  that returns the resource directly (older deployments). */
+function unwrapKey<T>(payload: unknown, key: string): T {
+  if (payload && typeof payload === 'object' && key in payload) {
+    return (payload as Record<string, unknown>)[key] as T;
+  }
+  return payload as T;
+}
+
+/** List endpoints have shipped both as a bare array and as `{items}`; accept
+ *  either instead of silently returning an empty list when the shape changes. */
+function listItems<T>(payload: T[] | { items?: T[] } | null): T[] {
+  if (Array.isArray(payload)) return payload;
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
 function readStoredBaseUrl(): string {
   if (typeof localStorage === 'undefined') return SPD_DEFAULT_BASE_URL;
   const raw = localStorage.getItem('spice_spd_base_url') || '';
   // Pre-restructure builds defaulted to the relative '/api/v1' (same-origin
-  // proxy that no longer exists); migrate silently to the production host.
-  if (!raw || raw === '/api/v1') return SPD_DEFAULT_BASE_URL;
-  return raw;
+  // proxy that no longer exists); a host-only value is also common after the
+  // API origin changed, so append the version prefix instead of 404ing.
+  return normalizeSpdBaseUrl(raw, SPD_DEFAULT_BASE_URL);
 }
-export function spdBaseUrl(): string { return readStoredBaseUrl().replace(/\/$/, ''); }
+export function spdBaseUrl(): string { return readStoredBaseUrl(); }
 export function spdToken(): string { return (typeof localStorage !== 'undefined' && localStorage.getItem('spice_spd_api_token')) || ''; }
 
 export class SpdClient {
   readonly baseUrl: string;
   private readonly token: string;
   constructor(options: SpdClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? readStoredBaseUrl()).replace(/\/$/, '');
+    this.baseUrl = normalizeSpdBaseUrl(options.baseUrl ?? readStoredBaseUrl(), SPD_DEFAULT_BASE_URL);
     this.token = options.token ?? spdToken();
   }
 
@@ -105,15 +124,71 @@ export class SpdClient {
   queryFolds(query: SpdFoldQuery) { return this.http<SpdFoldSummary[]>('POST', '/folds/query', query); }
   /** Graph DSL batch read — roots walk registered edges in one metered call. */
   graphQuery(query: SpdGraphQuery) { return this.http<SpdGraphData>('POST', '/query', query); }
-  getFold(id: string) { return this.http<SpdFoldSummary>(`GET`, `/folds/${encodeURIComponent(id)}`); }
-  getConstruct(id: string) { return this.http<Record<string, unknown>>(`GET`, `/constructs/${encodeURIComponent(id)}`); }
+  async getFold(id: string) {
+    const payload = await this.http<{ fold: SpdFoldRecord } | SpdFoldRecord>('GET', `/folds/${encodeURIComponent(id)}`);
+    return unwrapKey<SpdFoldRecord>(payload, 'fold');
+  }
+  // ─── Gene records (self-carried DNA/transcript + region evidence) ───
+  // Lists return {items:[…]} (detail returns {gene: GeneRecord}); region rows
+  // are append-only and deduplicated by the server (receipt has `duplicates`).
+  async listGenes(geneType?: string): Promise<SpdGeneListRow[]> {
+    const payload = await this.http<SpdGeneListRow[] | { items?: SpdGeneListRow[] }>(
+      'GET', `/genes${geneType ? `?gene_type=${encodeURIComponent(geneType)}` : ''}`,
+    );
+    return listItems(payload);
+  }
+  async searchGenes(query: string, limit = 50): Promise<SpdGeneListRow[]> {
+    const payload = await this.http<SpdGeneListRow[] | { items?: SpdGeneListRow[] }>(
+      'POST', '/search', { entityType: 'gene', query, limit },
+    );
+    return listItems(payload);
+  }
+  async getGene(id: string): Promise<SpdGeneRecord> {
+    const payload = await this.http<{ gene: SpdGeneRecord } | SpdGeneRecord>('GET', `/genes/${encodeURIComponent(id)}`);
+    return unwrapKey<SpdGeneRecord>(payload, 'gene');
+  }
+  createGene(input: SpdGeneInput) { return this.http<SpdGeneCreateReceipt>('POST', '/genes', input); }
+  async listGeneRegions(id: string): Promise<SpdGeneRegion[]> {
+    const payload = await this.http<SpdGeneRegion[] | { items?: SpdGeneRegion[] }>(
+      'GET', `/genes/${encodeURIComponent(id)}/regions`,
+    );
+    return listItems(payload);
+  }
+  addGeneRegions(id: string, regions: SpdGeneRegionInput[]) {
+    return this.http<SpdGeneRegionBatchReceipt>('POST', `/genes/${encodeURIComponent(id)}/regions`, { regions });
+  }
+  deleteGene(id: string) { return this.http<Record<string, unknown>>('DELETE', `/genes/${encodeURIComponent(id)}`); }
+
+  async getConstruct(id: string) {
+    const payload = await this.http<{ construct: Record<string, unknown> } | Record<string, unknown>>('GET', `/constructs/${encodeURIComponent(id)}`);
+    return unwrapKey<Record<string, unknown>>(payload, 'construct');
+  }
+  async getProtein(id: string) {
+    const payload = await this.http<{ protein: Record<string, unknown> } | Record<string, unknown>>('GET', `/proteins/${encodeURIComponent(id)}`);
+    return unwrapKey<Record<string, unknown>>(payload, 'protein');
+  }
+  async getSequence(id: string) {
+    const payload = await this.http<{ sequence: Record<string, unknown> } | Record<string, unknown>>('GET', `/sequences/${encodeURIComponent(id)}`);
+    return unwrapKey<Record<string, unknown>>(payload, 'sequence');
+  }
+  async getEnvironment(id: string) {
+    const payload = await this.http<{ environment: Record<string, unknown> } | Record<string, unknown>>('GET', `/environments/${encodeURIComponent(id)}`);
+    return unwrapKey<Record<string, unknown>>(payload, 'environment');
+  }
+  async getModel(id: string) {
+    const payload = await this.http<{ model: Record<string, unknown> } | Record<string, unknown>>('GET', `/models/${encodeURIComponent(id)}`);
+    return unwrapKey<Record<string, unknown>>(payload, 'model');
+  }
   schema(entityType: string) { return this.http<{ entityType: string; jsonSchema: Record<string, unknown>; schemaVersion?: string }>('GET', `/schema/${encodeURIComponent(entityType)}`); }
 
   // ─── Vector templates (SPD design objects) ───
   // POST /vectors takes the §13 model UNDER `data` (DesignInput wrapper);
   // the receipt is bare: {id, created, data}.
   listVectors(q?: string) { return this.http<SpdVectorSummary[]>('GET', `/vectors${q ? `?q=${encodeURIComponent(q)}` : ''}`); }
-  getVector(id: string) { return this.http<SpdVectorDetail>('GET', `/vectors/${encodeURIComponent(id)}`); }
+  async getVector(id: string) {
+    const payload = await this.http<{ vector: SpdVectorDetail } | SpdVectorDetail>('GET', `/vectors/${encodeURIComponent(id)}`);
+    return unwrapKey<SpdVectorDetail>(payload, 'vector');
+  }
   createVector(design: SpdVectorDesign) { return this.http<SpdVectorReceipt>('POST', '/vectors', { data: design }); }
   validateVector(id: string, body: { sequenceArtifactId?: string; strict?: boolean } = {}) {
     return this.http<SpdVectorValidation>('POST', `/vectors/${encodeURIComponent(id)}/validate`, body);
@@ -121,8 +196,20 @@ export class SpdClient {
 
   // ─── Restriction enzyme catalog (library sync source) ───
   // The export bundle is PUBLIC (no token) and is what "sync from SPD" pulls.
-  listRestrictionEnzymes() { return this.http<{ items: unknown[] }>('GET', '/restriction-enzymes'); }
+  listRestrictionEnzymes(filters: { proteinId?: string; targetMolecule?: string } = {}) {
+    const params = new URLSearchParams();
+    if (filters.proteinId) params.set('protein_id', filters.proteinId);
+    if (filters.targetMolecule) params.set('target_molecule', filters.targetMolecule);
+    const qs = params.toString();
+    return this.http<SpdRestrictionEnzymeList>('GET', `/restriction-enzymes${qs ? `?${qs}` : ''}`);
+  }
   exportRestrictionEnzymes() { return this.http<SpdEnzymeExport>('GET', '/restriction-enzymes/export'); }
+  async getRestrictionEnzyme(id: string) {
+    const payload = await this.http<{ restrictionEnzyme: SpdRestrictionEnzymeRow } | SpdRestrictionEnzymeRow>(
+      'GET', `/restriction-enzymes/${encodeURIComponent(id)}`,
+    );
+    return unwrapKey<SpdRestrictionEnzymeRow>(payload, 'restrictionEnzyme');
+  }
   createRestrictionEnzyme(input: SpdEnzymeCreateInput) { return this.http<Record<string, unknown>>('POST', '/restriction-enzymes', input); }
 
   // ─── Artifact upload pipeline (raw bytes through the Rust bridge) ───
@@ -136,6 +223,25 @@ export class SpdClient {
   createArtifact(input: SpdArtifactInput) { return this.http<SpdArtifactReceipt>('POST', '/artifacts', input); }
   completeArtifact(id: string, sha256: string, byteLength: number) {
     return this.http<SpdArtifactReceipt>('POST', `/artifacts/${encodeURIComponent(id)}/complete`, { sha256, byteLength });
+  }
+  async getArtifact(id: string) {
+    const payload = await this.http<{ artifact: SpdArtifactRecord } | SpdArtifactRecord>('GET', `/artifacts/${encodeURIComponent(id)}`);
+    return unwrapKey<SpdArtifactRecord>(payload, 'artifact');
+  }
+  async listMyArtifacts(): Promise<SpdArtifactRecord[]> {
+    const payload = await this.http<SpdArtifactRecord[] | { artifacts?: SpdArtifactRecord[]; items?: SpdArtifactRecord[] }>(
+      'GET', '/artifacts/mine',
+    );
+    if (Array.isArray(payload)) return payload;
+    return payload.artifacts ?? payload.items ?? [];
+  }
+  /** Absolute upload URL for a preflight token. Built from the configured
+   *  base because a grant may bake in a different deployment host. */
+  uploadUrl(token: string): string {
+    return `${this.baseUrl}/uploads/${encodeURIComponent(token)}`;
+  }
+  downloadArtifactUrl(id: string): string {
+    return `${this.baseUrl}/artifacts/${encodeURIComponent(id)}/download`;
   }
 
   /** PUT raw bytes to an absolute grant URL (bypasses the base-url prefix).

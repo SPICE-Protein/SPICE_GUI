@@ -2,6 +2,8 @@
  *  ladder fitting. Pure functions only; no DOM beyond a canvas used by the
  *  straighten search (which the component owns). */
 
+import { thresholdScale, type GelDetectConfig } from './presets';
+
 export interface Peak {
   /** Row/column index (fraction of the profile length). */
   frac: number;
@@ -20,6 +22,9 @@ export interface PeakOptions {
   minGap?: number;
   /** Smoothing window (odd number of buckets, 1 = off). */
   smooth?: number;
+  /** Keep the mean+std gate. Binary signal profiles have no intensity range,
+   *  so leaving it on can hide weak lanes next to a saturated ladder. */
+  useThreshold?: boolean;
 }
 
 /** Average RGB to a 0..1 gray plane (row-major, length w*h). */
@@ -69,9 +74,10 @@ export function findPeaks(profile: Float32Array, opts: PeakOptions = {}): Peak[]
   const threshold = mean + prominenceStd * std;
 
   const candidates: Peak[] = [];
+  const useThreshold = opts.useThreshold ?? true;
   for (let i = 1; i < n - 1; i++) {
     const v = smoothed[i];
-    if (v < threshold) continue;
+    if (useThreshold && v < threshold) continue;
     // Strict on the falling side, lenient on the rising side: a flat-topped
     // plateau (a wide band column) yields exactly one candidate, not one per
     // pixel of its top.
@@ -238,6 +244,244 @@ export function clippedFraction(gray: Float32Array): { dark: number; bright: num
     else if (gray[i] >= 0.996) bright++;
   }
   return { dark: dark / Math.max(1, gray.length), bright: bright / Math.max(1, gray.length) };
+}
+
+/** Tile-mean background, bilinearly interpolated. Removes the broad glow of a
+ *  UV transilluminator and scanner vignetting before thresholding, so a single
+ *  global cut stays valid across the whole slab. */
+export function backgroundPlane(
+  gray: Float32Array,
+  width: number,
+  height: number,
+  quantile = 0.5,
+): Float32Array {
+  // The window must stay much larger than a band, otherwise the band raises
+  // its own background estimate and vanishes from the residual.
+  const tile = Math.max(12, Math.round(Math.min(width, height) / 6));
+  const gw = Math.max(2, Math.ceil(width / tile));
+  const gh = Math.max(2, Math.ceil(height / tile));
+  const grid = new Float32Array(gw * gh);
+  for (let gy = 0; gy < gh; gy++) {
+    const cy = Math.min(height - 1, gy * tile + Math.floor(tile / 2));
+    const y0 = Math.max(0, cy - Math.floor(tile / 2));
+    const y1 = Math.min(height, y0 + tile);
+    for (let gx = 0; gx < gw; gx++) {
+      const cx = Math.min(width - 1, gx * tile + Math.floor(tile / 2));
+      const x0 = Math.max(0, cx - Math.floor(tile / 2));
+      const x1 = Math.min(width, x0 + tile);
+      // A per-tile quantile rather than the mean: a bright band can fill a
+      // large share of its tile, and the mean would then absorb it into the
+      // background. The low quantile tracks the background under bright bands,
+      // the high quantile under dark ones.
+      const hist = new Uint32Array(256);
+      let n = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          hist[Math.round(Math.max(0, Math.min(1, gray[y * width + x])) * 255)]++;
+          n++;
+        }
+      }
+      let acc = 0;
+      let level = 0;
+      const target = n * quantile;
+      for (let i = 0; i < 256; i++) {
+        acc += hist[i];
+        if (acc >= target) {
+          level = i;
+          break;
+        }
+      }
+      grid[gy * gw + gx] = n ? level / 255 : 0;
+    }
+  }
+  const out = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const fy = y / tile - 0.5;
+    let gy0: number;
+    let gy1: number;
+    let ty: number;
+    if (fy < 0) {
+      gy0 = 0;
+      gy1 = Math.min(gh - 1, 1);
+      ty = fy;
+    } else if (fy > gh - 1) {
+      gy0 = Math.max(0, gh - 2);
+      gy1 = gh - 1;
+      ty = fy - gy0;
+    } else {
+      gy0 = Math.floor(fy);
+      gy1 = Math.min(gh - 1, gy0 + 1);
+      ty = fy - gy0;
+    }
+    for (let x = 0; x < width; x++) {
+      const fx = x / tile - 0.5;
+      let gx0: number;
+      let gx1: number;
+      let tx: number;
+      if (fx < 0) {
+        gx0 = 0;
+        gx1 = Math.min(gw - 1, 1);
+        tx = fx;
+      } else if (fx > gw - 1) {
+        gx0 = Math.max(0, gw - 2);
+        gx1 = gw - 1;
+        tx = fx - gx0;
+      } else {
+        gx0 = Math.floor(fx);
+        gx1 = Math.min(gw - 1, gx0 + 1);
+        tx = fx - gx0;
+      }
+      const a = grid[gy0 * gw + gx0];
+      const b = grid[gy0 * gw + gx1];
+      const c = grid[gy1 * gw + gx0];
+      const d = grid[gy1 * gw + gx1];
+      out[y * width + x] = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+    }
+  }
+  return out;
+}
+
+/** Otsu cut over [lo, hi]; values outside are clamped into the end bins. */
+function otsuThreshold(values: Float32Array, lo: number, hi: number, bins = 256): number {
+  if (!(hi > lo)) return lo;
+  const hist = new Uint32Array(bins);
+  const scale = (bins - 1) / (hi - lo);
+  for (let i = 0; i < values.length; i++) {
+    const b = Math.round((values[i] - lo) * scale);
+    hist[b < 0 ? 0 : b >= bins ? bins - 1 : b]++;
+  }
+  let total = 0;
+  let weighted = 0;
+  for (let i = 0; i < bins; i++) {
+    total += hist[i];
+    weighted += i * hist[i];
+  }
+  let sumB = 0;
+  let wB = 0;
+  let best = -1;
+  let cut = lo;
+  for (let i = 0; i < bins; i++) {
+    wB += hist[i];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += i * hist[i];
+    const mB = sumB / wB;
+    const mF = (weighted - sumB) / wF;
+    const between = wB * wF * (mB - mF) ** 2;
+    if (between > best) {
+      best = between;
+      cut = lo + (i + 0.5) / scale;
+    }
+  }
+  return cut;
+}
+
+/** Signal polarity from the central region: compare how far the dark and
+ *  bright tails reach from the median. A gradient background spreads across
+ *  many bins, so the histogram mode is not a reliable background marker, but
+ *  the tail that reaches further is always the bands. The central window keeps
+ *  a black scanner surround out of the vote. */
+function signalPolarity(values: Float32Array, width: number, height: number, bins = 256): 1 | -1 {
+  const x0 = Math.floor(width * 0.1);
+  const x1 = Math.max(x0 + 1, width - x0);
+  const y0 = Math.floor(height * 0.1);
+  const y1 = Math.max(y0 + 1, height - y0);
+  const hist = new Uint32Array(bins);
+  let count = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const value = Math.max(0, Math.min(1, values[y * width + x]));
+      hist[Math.round(value * (bins - 1))]++;
+      count++;
+    }
+  }
+  if (!count) return 1;
+  const quantile = (q: number) => {
+    const target = count * q;
+    let acc = 0;
+    for (let i = 0; i < bins; i++) {
+      acc += hist[i];
+      if (acc >= target) return i / (bins - 1);
+    }
+    return 1;
+  };
+  const low = quantile(0.01);
+  const median = quantile(0.5);
+  const high = quantile(0.99);
+  return high - median >= median - low ? 1 : -1;
+}
+
+/** Median of |values| from a histogram, capped at `hi`. Robust to the bands
+ *  themselves because they cover far less area than the background. */
+function medianMagnitude(values: Float32Array, hi: number, bins = 512): number {
+  const hist = new Uint32Array(bins);
+  for (let i = 0; i < values.length; i++) {
+    const v = Math.abs(values[i]);
+    const b = Math.min(bins - 1, Math.floor((v / hi) * bins));
+    hist[b]++;
+  }
+  const half = values.length / 2;
+  let acc = 0;
+  for (let b = 0; b < bins; b++) {
+    acc += hist[b];
+    if (acc >= half) return (b + 0.5) * (hi / bins);
+  }
+  return hi;
+}
+
+export interface BinaryResult {
+  /** 1 where a band/well pixel is present, 0 elsewhere. */
+  signal: Float32Array;
+  /** +1 for bright bands on a dark background, -1 for dark bands on light. */
+  polarity: 1 | -1;
+  /** Signal threshold on the polarity-corrected residual. */
+  threshold: number;
+}
+
+/** Flatten illumination, detect bright/dark polarity and threshold. This is
+ *  what makes one detector work on UV/fluorescence gels and on Coomassie or
+ *  silver-stained gels, which have opposite contrast. */
+export function binarizeGray(
+  gray: Float32Array,
+  width: number,
+  height: number,
+  config?: GelDetectConfig,
+): BinaryResult {
+  const n = width * height;
+  let polarity: 1 | -1;
+  if (config?.polarity === 'bright') polarity = 1;
+  else if (config?.polarity === 'dark') polarity = -1;
+  else polarity = signalPolarity(gray, width, height);
+  // 1.0 at the shipped sensitivity, so an untouched config is bit-identical.
+  const scale = config ? thresholdScale(config) : 1;
+  // Follow the background on the side away from the bands: a low quantile for
+  // bright bands, a high quantile for dark bands.
+  const background = backgroundPlane(gray, width, height, polarity === 1 ? 0.2 : 0.8);
+  const residual = new Float32Array(n);
+  let hi = 0;
+  for (let i = 0; i < n; i++) {
+    const value = polarity === 1 ? gray[i] - background[i] : background[i] - gray[i];
+    residual[i] = value;
+    if (value > hi) hi = value;
+  }
+  const sigma = Math.max(0.002, 1.4826 * medianMagnitude(residual, 0.5));
+  const floor = Math.max(0.008, 3 * sigma);
+  hi = Math.min(1, hi);
+  if (hi <= floor) return { signal: new Float32Array(n), polarity, threshold: hi };
+  const threshold = Math.max(otsuThreshold(residual, -3 * sigma, hi), floor) * scale;
+  const signal = new Float32Array(n);
+  for (let i = 0; i < n; i++) signal[i] = residual[i] >= threshold ? 1 : 0;
+  // Scanner vignetting and the slab border can survive the residual as a
+  // full-height false lane; drop the outer 3% like the native binarizer does.
+  const bx = Math.max(2, Math.ceil(width * 0.03));
+  const by = Math.max(2, Math.ceil(height * 0.03));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (x < bx || y < by || x >= width - bx || y >= height - by) signal[y * width + x] = 0;
+    }
+  }
+  return { signal, polarity, threshold };
 }
 
 /** Locate the gel slab as the contiguous run through the image centre that

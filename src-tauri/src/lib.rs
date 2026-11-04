@@ -3,6 +3,7 @@
 
 mod onnx;
 mod files;
+mod gel;
 mod spice;
 mod cloning;
 mod spd;
@@ -16,7 +17,7 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -26,6 +27,8 @@ pub fn run() {
             // file export (mmCIF / PNG)
             files::save_export,
             files::save_file_direct,
+            // gel detection: native binarization
+            gel::binarize_gel,
             // SPD (d-api.spicebio.top) HTTP bridge + checkpoint hashing
             spd::spd_request,
             spd::spd_put_bytes,
@@ -77,7 +80,17 @@ pub fn run() {
            cloning::pareto_codesign_evaluate,
            cloning::solve_phase_bifurcation,
            cloning::simulate_goldengate_assembly,
-       ])
+       ]);
+
+    // Embedded WebDriver server for E2E tests. The `webdriver` Cargo feature
+    // is enabled only by the E2E build script; this plugin exposes automation
+    // endpoints over localhost and must never ship in a release bundle.
+    #[cfg(feature = "webdriver")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -9,6 +9,7 @@ import {
   isOutOfRange,
 } from '$lib/tools/gel/detect';
 import type { LadderDef } from '$lib/tools/gel/ladders';
+import { defaultDetectConfig } from '$lib/tools/gel/presets';
 
 const LADDER: LadderDef = {
   id: 'test-ladder',
@@ -100,6 +101,22 @@ describe('detectBandsInLane', () => {
   it('returns no bands for a blank lane', () => {
     expect(detectBandsInLane(plane(50, 50, 0.1), 50, 50, { x: 0.5, width: 0.2 }, 'dna')).toEqual([]);
   });
+
+  it('lets a wider minimum gap merge close bands', () => {
+    const width = 100;
+    const height = 100;
+    const gray = plane(width, height, 0.1);
+    paintRows(gray, width, 40, 60, [
+      [19, 22],
+      [49, 52],
+      [79, 82],
+    ], 0.9);
+    const config = defaultDetectConfig();
+    config.bands.minGap = 0.5;
+    const merged = detectBandsInLane(gray, width, height, { x: 0.5, width: 0.2 }, 'dna', config);
+    expect(merged.length).toBeLessThan(3);
+    expect(merged.length).toBeGreaterThan(0);
+  });
 });
 
 describe('detectGelType', () => {
@@ -113,6 +130,25 @@ describe('detectGelType', () => {
   it('classifies a red-stained image as DNA', () => {
     const rgba = new Uint8ClampedArray([200, 50, 50, 255]);
     const guess = detectGelType(rgba, 4, 2, 0);
+    expect(guess.kind).toBe('dna');
+    expect(guess.reasons).toContain('red');
+  });
+
+  it('ignores a purple UV background when the band mask is available', () => {
+    // A UV transilluminator floods the frame with purple; the pink DNA bands
+    // are a minority of the pixels. The whole-image mean votes blue (protein),
+    // the band-only mean votes red (DNA).
+    const pixels = 144;
+    const rgba = new Uint8ClampedArray(pixels * 4);
+    for (let i = 0; i < pixels; i++) {
+      const band = i >= pixels - 64;
+      const [r, g, b] = band ? [255, 80, 140] : [60, 20, 200];
+      rgba.set([r, g, b, 255], i * 4);
+    }
+    expect(detectGelType(rgba, 3, 2, 0).kind).toBe('protein');
+    const mask = new Float32Array(pixels);
+    for (let i = pixels - 64; i < pixels; i++) mask[i] = 1;
+    const guess = detectGelType(rgba, 3, 2, 0, mask);
     expect(guess.kind).toBe('dna');
     expect(guess.reasons).toContain('red');
   });

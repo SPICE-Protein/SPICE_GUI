@@ -14,7 +14,13 @@ import {
   detectLanesAuto,
   estimateBandSizes,
   identifyMarkers,
+  signalPlane,
 } from './detect';
+import {
+  defaultDetectConfig,
+  sanitizeDetectConfig,
+  type GelDetectConfig,
+} from './presets';
 import { decodeExposure, loadImageElement, renderProcessed, type ProcessedImage } from './pipeline';
 import { buildFigure } from './figure';
 import { rasterizeFigure } from './render';
@@ -34,6 +40,8 @@ export interface GelBatchOptions {
   ladderId?: string;
   /** Figure resolution, matching the editor export selector. */
   dpi?: number;
+  /** Stain/detection config; defaults to the neutral built-in preset. */
+  detect?: GelDetectConfig;
   onProgress?: (progress: { current: number; total: number; name: string }) => void;
 }
 
@@ -159,10 +167,16 @@ function fitSelectedLadder(project: GelProject, ladder: LadderDef): boolean {
 }
 
 /** Run the automatic editor pipeline on one image and render its figure. */
-async function processImage(file: File, ladderId: string | undefined, dpi: number): Promise<ProcessedGel> {
+async function processImage(
+  file: File,
+  ladderId: string | undefined,
+  dpi: number,
+  detect?: GelDetectConfig,
+): Promise<ProcessedGel> {
   const exposure: GelExposure = await decodeExposure(file);
   const img = await loadImageElement(exposure.dataUrl);
   const project = emptyProject();
+  project.detect = detect ? sanitizeDetectConfig(detect) : defaultDetectConfig();
   project.exposures = [exposure];
   project.activeExposureId = exposure.id;
   project.imageName = exposure.name;
@@ -170,24 +184,51 @@ async function processImage(file: File, ladderId: string | undefined, dpi: numbe
   // 1. Straighten, then crop the gel slab.
   project.rotation = bestStraightenAngle(img);
   const processed = renderProcessed(exposure, project, img);
+  const gray = processed.detectGray;
   project.crop = autoCropRect(processed.gray, processed.width, processed.height);
 
-  // 2. Infer the gel type from the preliminary DNA pass.
-  const preliminary = detectLanesAuto(processed.gray, processed.width, processed.height, false);
-  const preliminaryBands = preliminary.map((lane) =>
-    detectBandsInLane(processed.gray, processed.width, processed.height, lane, 'dna'),
+  // 2. Infer the gel type unless the preset forces one.
+  const forced = project.detect.type;
+  const preliminaryProtein = forced === 'protein';
+  let preliminary = detectLanesAuto(
+    gray,
+    processed.width,
+    processed.height,
+    preliminaryProtein,
+    project.detect,
   );
-  const maxBands = preliminaryBands.reduce((n, bands) => Math.max(n, bands.length), 0);
-  const widths = preliminaryBands.flat().map((band) => band.width).sort((a, b) => a - b);
-  const medianWidth = widths.length ? widths[Math.floor(widths.length / 2)] : 0;
-  const ctx = processed.canvas.getContext('2d', { willReadFrequently: true })!;
-  const rgba = ctx.getImageData(0, 0, processed.width, processed.height).data;
-  const guess = detectGelType(rgba, maxBands, preliminary.length, medianWidth);
-  project.gelType = guess.kind;
-  project.unit = unitForKind(guess.kind);
-  project.ladderId = laddersFor(guess.kind, project.customLadders)[0]?.id ?? project.ladderId;
+  const preliminaryBands = preliminary.map((lane) =>
+    detectBandsInLane(
+      gray,
+      processed.width,
+      processed.height,
+      lane,
+      forced === 'auto' ? 'dna' : forced,
+      project.detect,
+    ),
+  );
+  let kind: GelProject['gelType'] = forced === 'auto' ? 'dna' : forced;
+  if (forced === 'auto') {
+    const maxBands = preliminaryBands.reduce((n, bands) => Math.max(n, bands.length), 0);
+    const widths = preliminaryBands.flat().map((band) => band.width).sort((a, b) => a - b);
+    const medianWidth = widths.length ? widths[Math.floor(widths.length / 2)] : 0;
+    // The stored canvas is grayscale in the default display mode, so vote on a
+    // colour render of the same orientation.
+    const color = renderProcessed(exposure, { ...project, display: 'color' }, img).canvas;
+    const rgba = color
+      .getContext('2d', { willReadFrequently: true })!
+      .getImageData(0, 0, processed.width, processed.height).data;
+    const mask = signalPlane(gray, processed.width, processed.height, project.detect);
+    kind = detectGelType(rgba, maxBands, preliminary.length, medianWidth, mask).kind;
+    if (kind === 'protein' && !preliminaryProtein) {
+      preliminary = detectLanesAuto(gray, processed.width, processed.height, true, project.detect);
+    }
+  }
+  project.gelType = kind;
+  project.unit = unitForKind(kind);
+  project.ladderId = laddersFor(kind, project.customLadders)[0]?.id ?? project.ladderId;
 
-  // 3. Lanes and bands with the inferred gel kind.
+  // 3. Lanes and bands with the selected gel kind.
   project.lanes = preliminary.map((lane, index) => ({
     id: newLaneId(),
     x: lane.x,
@@ -197,9 +238,14 @@ async function processImage(file: File, ladderId: string | undefined, dpi: numbe
     bands: [],
   }));
   for (const lane of project.lanes) {
-    lane.bands = detectBandsInLane(processed.gray, processed.width, processed.height, lane, project.gelType).map(
-      (peak) => ({ y: peak.y, intensity: peak.intensity, showSize: true }),
-    );
+    lane.bands = detectBandsInLane(
+      gray,
+      processed.width,
+      processed.height,
+      lane,
+      project.gelType,
+      project.detect,
+    ).map((peak) => ({ y: peak.y, intensity: peak.intensity, showSize: true }));
   }
 
   // 4. Optional calibration with the ladder chosen in the batch panel.
@@ -309,7 +355,7 @@ export async function buildGelBatch(files: File[], options: GelBatchOptions = {}
   for (const [index, file] of images.entries()) {
     options.onProgress?.({ current: index + 1, total: images.length, name: file.name });
     try {
-      const result = await processImage(file, options.ladderId, dpi);
+      const result = await processImage(file, options.ladderId, dpi, options.detect);
       const base = uniqueBase(fileBaseName(file.name), used);
       const pngName = `${base}-figure.png`;
       const projectName = `${base}.gel.json`;

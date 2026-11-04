@@ -10,11 +10,11 @@
     Upload, Download, Save, FolderOpen, Plus, Trash2, RotateCcw, RotateCw,
     FlipHorizontal, FlipVertical, Wand2, Crosshair, Eraser, Star, Eye, EyeOff,
     Undo2, Redo2, X, Square, Type, ArrowLeft, ArrowUp,
-    Layers, Clock, FileText, Presentation, ScanLine, Package
+    Layers, Clock, FileText, Presentation, ScanLine, Package, SlidersHorizontal
   } from 'lucide-svelte';
   import {
     emptyProject, activeExposure as activeExposureOf, newId, newLaneId,
-    isGelProject, migrateV1, type GelProject, type GelLane, type GelExposure,
+    type GelProject, type GelLane, type GelExposure,
     type Annotation, type GelLayoutSettings, type LaneStyle
   } from './types';
   import {
@@ -25,6 +25,11 @@
     detectLanesAuto, detectBandsInLane, detectGelType, identifyMarkers,
     estimateBandSizes
   } from './detect';
+  import { cachedSignal, ensureSignal } from './native';
+  import {
+    DETECT_CHANNELS, DETECT_POLARITIES, DETECT_TYPE_MODES, presetById, presetChoices,
+    sanitizeDetectConfig, type DetectChannel, type DetectPolarity, type DetectTypeMode
+  } from './presets';
   import {
     decodeExposure, exposureScore, loadImageElement, renderProcessed,
     transformForFlip, transformForQuarterTurn, rotateProjectCoordinates,
@@ -39,6 +44,7 @@
   import {
     loadSnapshot, saveSnapshot, listRecent, saveRecent, loadRecent, removeRecent,
     renameRecent, listStyles, saveStyle, removeStyle, loadLadderLibrary, saveLadderLibrary,
+    detectConfigForNewImport, saveDetectDefault,
     type RecentEntry, type GelStyle
   } from './storage';
   import { projectStore } from '$lib/project/store.svelte.ts';
@@ -79,6 +85,8 @@
   let editingLane = $state<{ id: string; value: string; x: number; y: number; w: number } | null>(null);
   let preflightItems = $state<PreflightItem[]>([]);
   let typeReasons = $state<string[]>([]);
+  let detectStale = $state(false);
+  let confirmRedetect = $state(false);
   let recents = $state<RecentEntry[]>([]);
   let styles = $state<GelStyle[]>([]);
   let recentEdit = $state<{ id: string; name: string } | null>(null);
@@ -596,6 +604,7 @@
         layout: project.layout,
         customLadders: project.customLadders,
         favorites: project.favorites,
+        detect: detectConfigForNewImport(),
         exposures: decoded,
         activeExposureId: decoded[best].id,
         imageName: decoded[best].name,
@@ -721,6 +730,86 @@
     return Math.round(fine * 10) / 10;
   }
 
+  /** Run lanes, type and bands on the current processed plane. The caller owns
+   *  checkpoint, busy state and the final figure rebuild. */
+  async function runDetection(proc: ProcessedImage) {
+    const config = project.detect;
+    const gray = proc.detectGray;
+    await ensureSignal(gray, proc.width, proc.height, config);
+    // A preset may force the kind; otherwise vote from a DNA pass first, then
+    // re-run with the verdict so a restored label cannot pick the wrong path.
+    const forced = config.type;
+    const proteinPass = forced === 'protein';
+    let preliminary = detectLanesAuto(gray, proc.width, proc.height, proteinPass, config);
+    const preliminaryBands = preliminary.map((lane) =>
+      detectBandsInLane(
+        gray,
+        proc.width,
+        proc.height,
+        lane,
+        forced === 'auto' ? 'dna' : forced,
+        config,
+      ),
+    );
+    if (forced === 'auto') {
+      const bandCounts = preliminaryBands.map((b) => b.length);
+      const maxBands = bandCounts.length ? Math.max(...bandCounts) : 0;
+      const widths = preliminaryBands.flat().map((b) => b.width).sort((a, b) => a - b);
+      const medianWidth = widths.length ? widths[Math.floor(widths.length / 2)] : 0;
+      const ctx = proc.canvas.getContext('2d', { willReadFrequently: true })!;
+      // The processed canvas is grayscale (that is what detection needs), so
+      // take the type vote from a colour render of the same exposure. Both
+      // renders share the rotation/orientation, so the mask lines up.
+      let rgba = ctx.getImageData(0, 0, proc.width, proc.height).data;
+      const exp = activeExposureOf(project);
+      if (exp && imageEl) {
+        try {
+          const color = renderProcessed(exp, { ...project, display: 'color' }, imageEl).canvas;
+          rgba = color
+            .getContext('2d', { willReadFrequently: true })!
+            .getImageData(0, 0, proc.width, proc.height).data;
+        } catch {
+          // Fall back to the grayscale plane; the width/density vote still runs.
+        }
+      }
+      const mask = cachedSignal(gray, proc.width, proc.height, config) ?? undefined;
+      const guess = detectGelType(rgba, maxBands, preliminary.length, medianWidth, mask);
+      typeReasons = guess.reasons;
+      // Keep the user's chosen ladder when the verdict did not change; only a
+      // kind switch needs a ladder of the new kind.
+      if (project.gelType !== guess.kind) {
+        project.gelType = guess.kind;
+        project.unit = unitForKind(guess.kind);
+        project.ladderId = laddersFor(guess.kind, project.customLadders)[0]?.id ?? project.ladderId;
+        project.fit = null;
+      }
+      if (guess.kind === 'protein' && !proteinPass) {
+        preliminary = detectLanesAuto(gray, proc.width, proc.height, true, config);
+      }
+    } else {
+      typeReasons = [];
+      if (project.gelType !== forced) {
+        project.gelType = forced;
+        project.unit = unitForKind(forced);
+        project.ladderId = laddersFor(forced, project.customLadders)[0]?.id ?? project.ladderId;
+        project.fit = null;
+      }
+    }
+    const oldLanes = [...project.lanes];
+    project.lanes = preliminary.map((d, i) => ({
+      id: newLaneId(),
+      x: d.x,
+      width: d.width,
+      name: oldLanes.sort((a, b) => a.x - b.x)[i]?.name ?? String(i + 1),
+      isMarker: false,
+      bands: [],
+    }));
+    remapLaneReferences(oldLanes);
+    await detectBandsAll(false);
+    detectMarkers(false);
+    detectStale = false;
+  }
+
   async function autoDraft() {
     if (!processed) return;
     busy = m.gelBusyAuto();
@@ -731,33 +820,7 @@
       if (!processed) return;
       const proc = processed;
       project.crop = autoCropRect(proc.gray, proc.width, proc.height);
-      const preliminary = detectLanesAuto(proc.gray, proc.width, proc.height, project.gelType === 'protein');
-      const preliminaryBands = preliminary.map((lane) =>
-        detectBandsInLane(proc.gray, proc.width, proc.height, lane, project.gelType),
-      );
-      const bandCounts = preliminaryBands.map((b) => b.length);
-      const maxBands = bandCounts.length ? Math.max(...bandCounts) : 0;
-      const widths = preliminaryBands.flat().map((b) => b.width).sort((a, b) => a - b);
-      const medianWidth = widths.length ? widths[Math.floor(widths.length / 2)] : 0;
-      const ctx = proc.canvas.getContext('2d', { willReadFrequently: true })!;
-      const rgba = ctx.getImageData(0, 0, proc.width, proc.height).data;
-      const guess = detectGelType(rgba, maxBands, preliminary.length, medianWidth);
-      typeReasons = guess.reasons;
-      project.gelType = guess.kind;
-      project.unit = unitForKind(guess.kind);
-      project.ladderId = laddersFor(guess.kind, project.customLadders)[0]?.id ?? project.ladderId;
-      const oldLanes = [...project.lanes];
-      project.lanes = preliminary.map((d, i) => ({
-        id: newLaneId(),
-        x: d.x,
-        width: d.width,
-        name: oldLanes.sort((a, b) => a.x - b.x)[i]?.name ?? String(i + 1),
-        isMarker: false,
-        bands: [],
-      }));
-      remapLaneReferences(oldLanes);
-      await detectBandsAll(false);
-      detectMarkers(false);
+      await runDetection(proc);
       rebuildFigure();
       schedulePersist();
     } finally {
@@ -849,16 +912,24 @@
     remapLaneReferences(old);
   }
 
-  function autoLanes() {
+  async function autoLanes() {
     if (!processed) return;
-    const found = detectLanesAuto(processed.gray, processed.width, processed.height, project.gelType === 'protein');
+    const config = project.detect;
+    await ensureSignal(processed.detectGray, processed.width, processed.height, config);
+    const found = detectLanesAuto(
+      processed.detectGray,
+      processed.width,
+      processed.height,
+      project.gelType === 'protein',
+      config,
+    );
     if (!found.length) {
       toast(false, m.gelLanesEmpty());
       return;
     }
     commit(() => {
       applyLaneDetection(found, false);
-      for (const lane of project.lanes) lane.bands = detectBandsInLane(processed!.gray, processed!.width, processed!.height, lane, project.gelType).map((p) => ({
+      for (const lane of project.lanes) lane.bands = detectBandsInLane(processed!.detectGray, processed!.width, processed!.height, lane, project.gelType, config).map((p) => ({
         y: p.y,
         intensity: p.intensity,
         showSize: true,
@@ -867,18 +938,21 @@
     toast(true, m.gelLanesFound({ n: found.length }));
   }
 
-  function reDetectInCrop() {
+  async function reDetectInCrop() {
     if (!processed) return;
     const c = project.crop;
     const x0 = Math.round(c.left * processed.width);
     const x1 = Math.round((1 - c.right) * processed.width);
     const y0 = Math.round(c.top * processed.height);
     const y1 = Math.round((1 - c.bottom) * processed.height);
+    const config = project.detect;
     const sub = new Float32Array((x1 - x0) * (y1 - y0));
     for (let y = y0; y < y1; y++) {
-      for (let x = x0; x < x1; x++) sub[(y - y0) * (x1 - x0) + (x - x0)] = processed.gray[y * processed.width + x];
+      for (let x = x0; x < x1; x++) sub[(y - y0) * (x1 - x0) + (x - x0)] = processed.detectGray[y * processed.width + x];
     }
-    const found = detectLanesAuto(sub, x1 - x0, y1 - y0, project.gelType === 'protein').map((d) => ({
+    await ensureSignal(sub, x1 - x0, y1 - y0, config);
+    await ensureSignal(processed.detectGray, processed.width, processed.height, config);
+    const found = detectLanesAuto(sub, x1 - x0, y1 - y0, project.gelType === 'protein', config).map((d) => ({
       x: (x0 + d.x * (x1 - x0)) / processed!.width,
       width: (d.width * (x1 - x0)) / processed!.width,
     }));
@@ -888,7 +962,7 @@
     }
     commit(() => {
       applyLaneDetection(found, true);
-      for (const lane of project.lanes) lane.bands = detectBandsInLane(processed!.gray, processed!.width, processed!.height, lane, project.gelType).map((p) => ({
+      for (const lane of project.lanes) lane.bands = detectBandsInLane(processed!.detectGray, processed!.width, processed!.height, lane, project.gelType, config).map((p) => ({
         y: p.y,
         intensity: p.intensity,
         showSize: true,
@@ -1066,11 +1140,13 @@
 
   async function detectBandsAll(showMessage = true) {
     if (!processed) return;
+    const config = project.detect;
+    await ensureSignal(processed.detectGray, processed.width, processed.height, config);
     const sum = { n: 0, lanes: 0 };
     for (const lane of project.lanes) {
       if (lane.removed) continue;
       const manual = lane.bands.filter((b) => b.manual);
-      const peaks = detectBandsInLane(processed.gray, processed.width, processed.height, lane, project.gelType);
+      const peaks = detectBandsInLane(processed.detectGray, processed.width, processed.height, lane, project.gelType, config);
       lane.bands = peaks.map((p) => {
         const keep = manual.find((b) => Math.abs(b.y - p.y) < 0.01);
         return keep ?? { y: p.y, intensity: p.intensity, showSize: true };
@@ -1089,14 +1165,123 @@
     scheduleLayout();
   }
 
-  function detectBandsForLane(lane: GelLane) {
+  async function detectBandsForLane(lane: GelLane) {
     if (!processed) return;
-    const peaks = detectBandsInLane(processed.gray, processed.width, processed.height, lane, project.gelType);
+    const config = project.detect;
+    await ensureSignal(processed.detectGray, processed.width, processed.height, config);
+    const peaks = detectBandsInLane(processed.detectGray, processed.width, processed.height, lane, project.gelType, config);
     commit(() => {
       lane.bands = peaks.map((p) => ({ y: p.y, intensity: p.intensity, showSize: true }));
       project.fit = null;
     });
     toast(peaks.length > 0, peaks.length ? m.gelBandsFound({ n: peaks.length }) : m.gelBandsNone());
+  }
+
+  // ---------------------------------------------------- detection presets
+
+  function presetLabel(id: string): string {
+    switch (id) {
+      case 'auto': return m.gelPresetAuto();
+      case 'uv': return m.gelPresetUv();
+      case 'sybr': return m.gelPresetSybr();
+      case 'coomassie': return m.gelPresetCoomassie();
+      case 'silver': return m.gelPresetSilver();
+      default: return m.gelPresetCustom();
+    }
+  }
+
+  function typeModeLabel(mode: DetectTypeMode): string {
+    switch (mode) {
+      case 'dna': return m.gelDetectTypeDna();
+      case 'protein': return m.gelDetectTypeProtein();
+      default: return m.gelDetectTypeAuto();
+    }
+  }
+
+  function channelLabel(channel: DetectChannel): string {
+    switch (channel) {
+      case 'luma': return m.gelChannelLuma();
+      case 'red': return m.gelChannelRed();
+      case 'green': return m.gelChannelGreen();
+      case 'blue': return m.gelChannelBlue();
+      case 'red-blue': return m.gelChannelRedBlue();
+      case 'green-red': return m.gelChannelGreenRed();
+      default: return m.gelChannelAuto();
+    }
+  }
+
+  function polarityLabel(polarity: DetectPolarity): string {
+    switch (polarity) {
+      case 'bright': return m.gelPolarityBright();
+      case 'dark': return m.gelPolarityDark();
+      default: return m.gelPolarityAuto();
+    }
+  }
+
+  /** Any hand edit makes the config custom and postpones detection until the
+   *  explicit re-detect button runs. */
+  function onDetectInput() {
+    project.detect.presetId = 'custom';
+    detectStale = true;
+    confirmRedetect = false;
+    schedulePixels();
+    schedulePersist();
+  }
+
+  function applyStainPreset(id: string) {
+    const chosen = presetById(id);
+    if (!chosen) return;
+    checkpoint(true);
+    project.detect = sanitizeDetectConfig(chosen.config);
+    if (chosen.display) project.display = chosen.display;
+    const kind = chosen.config.type;
+    if (kind !== 'auto' && project.gelType !== kind) {
+      project.gelType = kind;
+      project.unit = unitForKind(kind);
+      project.ladderId = laddersFor(kind, project.customLadders)[0]?.id ?? project.ladderId;
+      project.fit = null;
+      for (const lane of project.lanes) {
+        lane.isMarker = false;
+        lane.ladderId = undefined;
+        lane.bands = lane.bands.map((b) => ({ ...b, size: undefined, approx: false }));
+      }
+    }
+    typeReasons = [];
+    detectStale = true;
+    confirmRedetect = false;
+    schedulePixels();
+    schedulePersist();
+  }
+
+  function resetDetectPreset() {
+    const current = presetById(project.detect.presetId);
+    applyStainPreset(current?.id ?? 'auto');
+  }
+
+  function saveCurrentDetectDefault() {
+    const ok = saveDetectDefault(project.detect);
+    toast(ok, ok ? m.gelDetectDefaultSaved() : m.gelDetectDefaultFailed());
+  }
+
+  async function redetectAll() {
+    if (!processed) return;
+    if (!confirmRedetect && project.lanes.some((lane) => lane.bands.some((b) => b.manual))) {
+      confirmRedetect = true;
+      return;
+    }
+    confirmRedetect = false;
+    busy = m.gelBusyAuto();
+    checkpoint(true);
+    try {
+      await refreshProcessed();
+      if (!processed) return;
+      await runDetection(processed);
+      rebuildFigure();
+      schedulePersist();
+      toast(true, m.gelDetectDone());
+    } finally {
+      busy = '';
+    }
   }
 
   function typeReasonText(reason: string): string {
@@ -1113,6 +1298,9 @@
     typeReasons = [];
     commit(() => {
       project.gelType = kind;
+      project.detect.type = kind;
+      project.detect.presetId = 'custom';
+      detectStale = false;
       project.unit = unitForKind(kind);
       project.ladderId = laddersFor(kind, project.customLadders)[0]?.id ?? '';
       project.fit = null;
@@ -1123,7 +1311,7 @@
       }
       if (processed) {
         for (const lane of project.lanes) {
-          lane.bands = detectBandsInLane(processed.gray, processed.width, processed.height, lane, kind).map((p) => ({
+          lane.bands = detectBandsInLane(processed.detectGray, processed.width, processed.height, lane, kind, project.detect).map((p) => ({
             y: p.y,
             intensity: p.intensity,
             showSize: true,
@@ -1297,9 +1485,11 @@
     project.annotations = project.annotations.filter((a) => a.type !== 'arrow');
     project.orient = (((project.orient + (clockwise ? 1 : 3)) % 4) + 4) % 4;
     const oldNames = oldOrdered.map((l) => ({ name: l.name, isMarker: l.isMarker, ladderId: l.ladderId }));
-    void refreshProcessed().then(() => {
+    void refreshProcessed().then(async () => {
       if (!processed) return;
-      const found = detectLanesAuto(processed.gray, processed.width, processed.height, project.gelType === 'protein');
+      const config = project.detect;
+      await ensureSignal(processed.detectGray, processed.width, processed.height, config);
+      const found = detectLanesAuto(processed.detectGray, processed.width, processed.height, project.gelType === 'protein', config);
       project.lanes = found.map((d, i) => ({
         id: newLaneId(),
         x: d.x,
@@ -1307,7 +1497,7 @@
         name: oldNames[i]?.name ?? String(i + 1),
         isMarker: oldNames[i]?.isMarker ?? false,
         ladderId: oldNames[i]?.ladderId,
-        bands: detectBandsInLane(processed!.gray, processed!.width, processed!.height, d, project.gelType).map((p) => ({
+        bands: detectBandsInLane(processed!.detectGray, processed!.width, processed!.height, d, project.gelType, config).map((p) => ({
           y: p.y,
           intensity: p.intensity,
           showSize: true,
@@ -1824,10 +2014,8 @@
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
-      let next: GelProject;
-      if ((parsed as { version?: number }).version === 1) next = migrateV1(parsed as never);
-      else if (isGelProject(parsed)) next = parsed;
-      else throw new Error(m.gelProjectInvalid());
+      const next = sanitizeGelProject(parsed);
+      if (!next) throw new Error(m.gelProjectInvalid());
       project = next;
       selectedLaneId = null;
       selectedBand = null;
@@ -2192,7 +2380,7 @@
     getPreview={projectPreview}
     getSummary={projectSummary}
   />
-  <input bind:this={imageInput} type="file" accept="image/png,image/jpeg,image/bmp,image/webp,image/gif,image/tiff,.tif,.tiff" multiple style="display:none" onchange={onPickImages} />
+  <input bind:this={imageInput} data-testid="gel-image-input" type="file" accept="image/png,image/jpeg,image/bmp,image/webp,image/gif,image/tiff,.tif,.tiff" multiple style="display:none" onchange={onPickImages} />
   <input bind:this={projectInput} type="file" accept=".json,.gelfig,application/json" style="display:none" onchange={onPickProject} />
   <input bind:this={ladderInput} type="file" accept=".json,application/json" style="display:none" onchange={onPickLadderLibrary} />
 
@@ -2286,6 +2474,109 @@
       </details>
 
       <details open>
+        <summary><SlidersHorizontal size={11} /> {m.gelDetectSection()}</summary>
+        <div class="sec-body">
+          <label class="row">
+            <span>{m.gelStainPreset()}</span>
+            <select class="pix-select" data-testid="gel-stain-preset" value={project.detect.presetId}
+              onchange={(e) => applyStainPreset((e.currentTarget as HTMLSelectElement).value)}>
+              {#each presetChoices(project.detect.presetId) as choice (choice.id)}
+                <option value={choice.id}>{presetLabel(choice.id)}</option>
+              {/each}
+            </select>
+          </label>
+          <div class="mini-grid">
+            <label class="inline">{m.gelDetectType()}
+              <select class="pix-select tiny" data-testid="gel-detect-type" value={project.detect.type}
+                onchange={(e) => { project.detect.type = (e.currentTarget as HTMLSelectElement).value as DetectTypeMode; onDetectInput(); }}>
+                {#each DETECT_TYPE_MODES as mode (mode)}<option value={mode}>{typeModeLabel(mode)}</option>{/each}
+              </select>
+            </label>
+            <label class="inline">{m.gelDetectPolarity()}
+              <select class="pix-select tiny" value={project.detect.polarity}
+                onchange={(e) => { project.detect.polarity = (e.currentTarget as HTMLSelectElement).value as DetectPolarity; onDetectInput(); }}>
+                {#each DETECT_POLARITIES as polarity (polarity)}<option value={polarity}>{polarityLabel(polarity)}</option>{/each}
+              </select>
+            </label>
+          </div>
+          <label class="row">
+            <span>{m.gelDetectChannel()}</span>
+            <select class="pix-select" value={project.detect.channel}
+              onchange={(e) => { project.detect.channel = (e.currentTarget as HTMLSelectElement).value as DetectChannel; onDetectInput(); }}>
+              {#each DETECT_CHANNELS as channel (channel)}<option value={channel}>{channelLabel(channel)}</option>{/each}
+            </select>
+          </label>
+          <label class="row"><span>{m.gelSensitivity()} <output>{Math.round(project.detect.sensitivity * 100)}%</output></span>
+            <input type="range" min="0" max="1" step="0.01" bind:value={project.detect.sensitivity}
+              onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+          </label>
+          <label class="row"><span>{m.gelDenoise()} <output>{project.detect.denoise}</output></span>
+            <input type="range" min="0" max="2" step="1" bind:value={project.detect.denoise}
+              onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+          </label>
+          <details class="detect-advanced">
+            <summary>{m.gelAdvanced()}</summary>
+            <div class="advanced-body">
+              <div class="pix-dim tiny">{m.gelLanes()}</div>
+              <label class="row"><span>{m.gelLaneCut()} <output>{Math.round(project.detect.lanes.cut * 100)}%</output></span>
+                <input type="range" min="0.02" max="0.4" step="0.01" bind:value={project.detect.lanes.cut}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <label class="row"><span>{m.gelLaneMergeGap()} <output>{(project.detect.lanes.mergeGap * 100).toFixed(1)}%</output></span>
+                <input type="range" min="0" max="0.02" step="0.001" bind:value={project.detect.lanes.mergeGap}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <label class="row"><span>{m.gelLaneMinWidth()} <output>{(project.detect.lanes.minWidth * 100).toFixed(1)}%</output></span>
+                <input type="range" min="0.001" max="0.02" step="0.001" bind:value={project.detect.lanes.minWidth}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <label class="row"><span>{m.gelLaneSmooth()} <output>{(project.detect.lanes.smooth * 100).toFixed(1)}%</output></span>
+                <input type="range" min="0" max="0.05" step="0.005" bind:value={project.detect.lanes.smooth}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <label class="row"><span>{m.gelLaneProminence()} <output>{Math.round(project.detect.lanes.prominence * 100)}%</output></span>
+                <input type="range" min="0.01" max="0.3" step="0.01" bind:value={project.detect.lanes.prominence}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <div class="pix-dim tiny">{m.gelBandGroup()}</div>
+              <label class="row"><span>{m.gelBandProminence()} <output>{project.detect.bands.prominence.toFixed(2)}σ</output></span>
+                <input type="range" min="0.1" max="2" step="0.05" bind:value={project.detect.bands.prominence}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <label class="row"><span>{m.gelBandMinGap()} <output>{(project.detect.bands.minGap * 100).toFixed(1)}%</output></span>
+                <input type="range" min="0.001" max="0.05" step="0.001" bind:value={project.detect.bands.minGap}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+              <label class="row"><span>{m.gelBandSmooth()} <output>{project.detect.bands.smooth}px</output></span>
+                <input type="range" min="1" max="15" step="1" bind:value={project.detect.bands.smooth}
+                  onpointerdown={() => checkpoint(true)} oninput={onDetectInput} />
+              </label>
+            </div>
+          </details>
+          {#if detectStale}
+            <div class="detect-stale">{m.gelDetectStale()}</div>
+          {/if}
+          {#if confirmRedetect}
+            <div class="detect-confirm">
+              <span>{m.gelRedetectConfirm()}</span>
+              <div class="btn-row">
+                <button class="pix-btn danger small" onclick={redetectAll}>{m.gelConfirm()}</button>
+                <button class="pix-btn small" onclick={() => (confirmRedetect = false)}>{m.gelCancel()}</button>
+              </div>
+            </div>
+          {:else}
+            <div class="btn-row">
+              <button class="pix-btn" disabled={!hasImage || !!busy} data-testid="gel-redetect" onclick={redetectAll}>
+                <Crosshair size={11} /> {m.gelRedetect()}
+              </button>
+              <button class="pix-btn small" onclick={resetDetectPreset}>{m.gelResetPreset()}</button>
+              <button class="pix-btn small" onclick={saveCurrentDetectDefault}>{m.gelSaveDefault()}</button>
+            </div>
+          {/if}
+        </div>
+      </details>
+
+      <details open>
         <summary><Layers size={11} /> {m.gelGelType()} / {m.gelLadderLibrary()}</summary>
         <div class="sec-body">
           <div class="btn-row">
@@ -2340,6 +2631,7 @@
           <div class="btn-row">
             <label class="inline">{m.gelLaneCount()}
               <input class="pix-input num" type="number" min="1" max="60" value={project.lanes.length}
+                data-testid="gel-lane-count"
                 onchange={(e) => setLaneCount(Number((e.currentTarget as HTMLInputElement).value))} />
             </label>
             <label class="check small"><input type="checkbox" bind:checked={linkGuides} /> {m.gelLinkGuides()}</label>
@@ -2779,6 +3071,11 @@
   .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; }
   .mini-grid label { display: flex; flex-direction: column; gap: 1px; font-size: 8.5px; color: var(--pix-fg-dim); }
   .style-box { display: flex; flex-direction: column; gap: 3px; border-top: 1px dashed var(--pix-border); padding-top: 4px; }
+  .detect-advanced { border-top: 1px dashed var(--pix-border); padding-top: 4px; }
+  .detect-advanced summary { padding: 2px 0; font-size: 9px; color: var(--pix-fg-dim); }
+  .advanced-body { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 0 4px; }
+  .detect-stale { color: var(--pix-accent); font-size: 8.5px; }
+  .detect-confirm { display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--pix-accent); padding: 4px; font-size: 8.5px; }
   .style-box .pix-input { flex: 1; min-width: 0; font-size: 9px; height: 20px; padding: 1px 4px; }
   .preflight { display: flex; flex-direction: column; gap: 3px; border-top: 1px dashed var(--pix-border); padding-top: 4px; }
   .check-line { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 8.5px; color: var(--pix-fg-dim); }

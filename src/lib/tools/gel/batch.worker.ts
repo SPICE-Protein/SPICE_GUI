@@ -1,11 +1,12 @@
 // Module worker for the gel folder batch. Processing and PNG encoding happen
 // here; the component saves the returned ZIP payload on the main thread.
 import { buildGelBatch, type GelBatchOptions } from './batch';
+import type { GelDetectConfig } from './presets';
 import type { ZipEntry } from '$lib/repro/zip';
 
 interface Request {
   files: File[];
-  payload: { ladderId?: string; dpi?: number };
+  payload: { ladderId?: string; dpi?: number; detect?: GelDetectConfig };
 }
 
 const ctx = self as unknown as {
@@ -27,6 +28,7 @@ ctx.onmessage = async (event) => {
     const options: GelBatchOptions = {
       ladderId: event.data.payload.ladderId,
       dpi: event.data.payload.dpi,
+      detect: event.data.payload.detect,
       onProgress: (progress) => {
         ctx.postMessage({
           type: 'progress',

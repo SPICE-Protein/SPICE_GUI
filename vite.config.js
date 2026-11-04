@@ -6,7 +6,16 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [sveltekit(), paraglideVitePlugin({ project: './project.inlang', outdir: './src/lib/paraglide' })],
+  plugins: [
+    sveltekit(),
+    paraglideVitePlugin({
+      project: './project.inlang',
+      outdir: './src/lib/paraglide',
+      // Tauri's webview rejects document.cookie, so localStorage must be first
+      // for the language choice to survive a reload or app restart.
+      strategy: ['localStorage', 'cookie', 'globalVariable', 'baseLocale'],
+    }),
+  ],
 
   // Batch workers use dynamic imports (UTIF), which requires ES module output.
   worker: {

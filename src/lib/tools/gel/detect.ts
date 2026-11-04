@@ -1,6 +1,7 @@
 // High-level gel detection: lane finding, band finding, gel-type inference and
 // marker-lane matching. Pure functions over the processed grayscale plane.
 import {
+  binarizeGray,
   columnProfile,
   rowProfile,
   findPeaks,
@@ -12,6 +13,44 @@ import {
   type PolyFit,
 } from './gelmath';
 import type { LadderDef } from './ladders';
+import { cachedSignal } from './native';
+import { detectConfigKey, type GelDetectConfig } from './presets';
+
+interface FallbackEntry {
+  width: number;
+  height: number;
+  signal: Float32Array;
+}
+
+const fallbackCache = new WeakMap<Float32Array, Map<string, FallbackEntry>>();
+
+function fallbackKey(config?: GelDetectConfig): string {
+  return config ? detectConfigKey(config) : 'auto';
+}
+
+/** Detection works on a binary signal plane, not raw grayscale. The native
+ *  entry points precompute and cache it; this is the synchronous lookup used
+ *  by the profile math, with the pure-JS threshold as a cold-start fallback. */
+export function signalPlane(
+  gray: Float32Array,
+  width: number,
+  height: number,
+  config?: GelDetectConfig,
+): Float32Array {
+  const native = cachedSignal(gray, width, height, config);
+  if (native) return native;
+  const key = fallbackKey(config);
+  const hit = fallbackCache.get(gray)?.get(key);
+  if (hit && hit.width === width && hit.height === height) return hit.signal;
+  const signal = binarizeGray(gray, width, height, config).signal;
+  let entries = fallbackCache.get(gray);
+  if (!entries) {
+    entries = new Map();
+    fallbackCache.set(gray, entries);
+  }
+  entries.set(key, { width, height, signal });
+  return signal;
+}
 
 export interface BandPeak {
   /** Normalised y in the processed full image. */
@@ -27,15 +66,50 @@ export interface GelTypeGuess {
   reasons: ('blue' | 'red' | 'wide' | 'many' | 'neutral')[];
 }
 
+/** Contiguous profile regions above `cut`, merging small gaps and dropping
+ *  specks. Returned as inclusive [start, end] column ranges. */
+function activeRuns(
+  profile: Float32Array,
+  cut: number,
+  minWidth: number,
+  mergeGap: number,
+): Array<[number, number]> {
+  const runs: Array<[number, number]> = [];
+  let start = -1;
+  for (let i = 0; i < profile.length; i++) {
+    const on = profile[i] >= cut;
+    if (on && start < 0) start = i;
+    else if (!on && start >= 0) {
+      runs.push([start, i - 1]);
+      start = -1;
+    }
+  }
+  if (start >= 0) runs.push([start, profile.length - 1]);
+  const merged: Array<[number, number]> = [];
+  for (const run of runs) {
+    const prev = merged[merged.length - 1];
+    if (prev && run[0] - prev[1] - 1 <= mergeGap) prev[1] = run[1];
+    else merged.push([run[0], run[1]]);
+  }
+  return merged.filter(([a, b]) => b - a + 1 >= minWidth);
+}
+
 /** Lane centres from the well row, corrected by band signal below it. Lanes
  *  that run together in crowded protein gels still separate at the wells. */
-export function detectLanesAuto(gray: Float32Array, width: number, height: number, protein = false): DetectedLane[] {
+export function detectLanesAuto(
+  gray: Float32Array,
+  width: number,
+  height: number,
+  protein = false,
+  config?: GelDetectConfig,
+): DetectedLane[] {
+  const signal = signalPlane(gray, width, height, config);
   const wellTop = Math.floor(height * 0.02);
   const wellBottom = Math.floor(height * 0.2);
   const bodyTop = Math.floor(height * 0.15);
   const bodyBottom = Math.floor(height * 0.95);
-  const wells = columnProfile(gray, width, height, wellTop, wellBottom);
-  const body = columnProfile(gray, width, height, bodyTop, bodyBottom);
+  const wells = columnProfile(signal, width, height, wellTop, wellBottom);
+  const body = columnProfile(signal, width, height, bodyTop, bodyBottom);
   // Normalise both profiles so the well row can guide the band signal.
   const norm = (p: Float32Array) => {
     let lo = Infinity;
@@ -51,16 +125,47 @@ export function detectLanesAuto(gray: Float32Array, width: number, height: numbe
   const nb = norm(body);
   const combined = new Float32Array(width);
   for (let i = 0; i < width; i++) combined[i] = 0.55 * nw[i] + 0.45 * nb[i];
+  let peakMax = 0;
+  for (const v of combined) peakMax = Math.max(peakMax, v);
+
+  // A lane is a contiguous active run, not a local maximum: on real UV photos
+  // the lane itself glows, so one lane spans a plateau that peak picking
+  // splits into several false lanes. A low relative cut recovers the run; if
+  // the lanes merge into one run, raise the cut before giving up.
+  // Protein gels often run lanes together with no dark gap; there the peak
+  // detector separates them better, so the run split is DNA-only.
+  if (!protein) {
+    const laneOpts = config?.lanes;
+    const minRunWidth = Math.max(3, Math.round(width * (laneOpts?.minWidth ?? 0.004)));
+    const mergeRunGap = Math.max(1, Math.round(width * (laneOpts?.mergeGap ?? 0.005)));
+    const baseCut = laneOpts?.cut ?? 0.08;
+    for (const cutFraction of [baseCut, baseCut * 2, baseCut * 3]) {
+      const runs = activeRuns(combined, peakMax * cutFraction, minRunWidth, mergeRunGap);
+      if (runs.length >= 2) {
+        return runs.map(([start, end]) => {
+          const laneWidth = Math.max(0.008, Math.min(0.2, (end - start + 1) / width));
+          return { x: (start + end) / 2 / Math.max(1, width - 1), width: laneWidth };
+        });
+      }
+    }
+  }
+  // Binary profiles have no intensity dynamic range; gate on prominence only,
+  // otherwise one saturated ladder lane raises the mean and hides the samples.
+  // The smoothing window is sized to a lane: without it, two bands in one lane
+  // that sit a few pixels apart become two lanes.
+  const minProminence = Math.max(0.01, peakMax * (config?.lanes.prominence ?? 0.1));
+  const minGap = Math.max(6, Math.round(width * (protein ? 0.02 : 0.03)));
+  const smoothFraction = (config?.lanes.smooth ?? 0.02) * (protein ? 0.75 : 1);
   let peaks = findPeaks(combined, {
-    prominenceStd: protein ? 0.28 : 0.35,
-    minProminence: 0.004,
-    minGap: Math.max(6, Math.round(width * (protein ? 0.008 : 0.012))),
-    smooth: protein ? 5 : 3,
+    useThreshold: false,
+    minProminence,
+    minGap,
+    smooth: Math.max(3, Math.round(width * smoothFraction)),
   });
   if (peaks.length < 2) {
     peaks = findPeaks(nb, {
-      prominenceStd: 0.3,
-      minProminence: 0.004,
+      useThreshold: false,
+      minProminence,
       minGap: Math.max(6, Math.round(width * 0.01)),
       smooth: 3,
     });
@@ -82,18 +187,23 @@ export function detectBandsInLane(
   height: number,
   lane: { x: number; width: number },
   kind: 'dna' | 'protein' = 'dna',
+  config?: GelDetectConfig,
 ): BandPeak[] {
   const x0 = Math.round((lane.x - lane.width / 2) * width);
   const x1 = Math.round((lane.x + lane.width / 2) * width);
-  const profile = rowProfile(gray, width, height, x0, x1);
+  const signal = signalPlane(gray, width, height, config);
+  const profile = rowProfile(signal, width, height, x0, x1);
   const protein = kind === 'protein';
+  const prominence = config?.bands.prominence ?? 0.5;
+  const gapFraction = (config?.bands.minGap ?? 0.006) * (protein ? 2 / 3 : 1);
+  const smooth = config?.bands.smooth ?? 3;
   const peaks = collapseFlatPeaks(
     profile,
     findPeaks(profile, {
-      prominenceStd: protein ? 0.3 : 0.5,
+      prominenceStd: prominence * (protein ? 0.6 : 1),
       minProminence: protein ? 0.003 : 0.006,
-      minGap: Math.max(3, Math.round(height * (protein ? 0.004 : 0.006))),
-      smooth: protein ? 5 : 3,
+      minGap: Math.max(3, Math.round(height * gapFraction)),
+      smooth: protein ? smooth + 2 : smooth,
     }),
   );
   // Full width at half maximum, used to tell broad protein bands from thin
@@ -112,14 +222,43 @@ export function detectBandsInLane(
   });
 }
 
+/** Mean colour of the band pixels only. A UV gel's purple background would
+ *  otherwise dominate the whole-image mean and vote "blue" (protein), even
+ *  though the bands themselves are red/pink DNA. Falls back to the full image
+ *  when the mask is missing or covers almost nothing. */
+function bandMeanRgb(rgba: Uint8ClampedArray, mask?: Float32Array) {
+  if (!mask || mask.length * 4 !== rgba.length) return meanRgb(rgba);
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let sat = 0;
+  let n = 0;
+  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
+    if (!mask[p]) continue;
+    const red = rgba[i];
+    const green = rgba[i + 1];
+    const blue = rgba[i + 2];
+    r += red;
+    g += green;
+    b += blue;
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    sat += max === 0 ? 0 : (max - min) / max;
+    n++;
+  }
+  if (n < Math.max(64, (rgba.length / 4) * 0.001)) return meanRgb(rgba);
+  return { r: r / n, g: g / n, b: b / n, sat: sat / n };
+}
+
 /** Best-effort DNA/protein vote from colour and band character. */
 export function detectGelType(
   rgba: Uint8ClampedArray,
   bandCount: number,
   laneCount: number,
   bandWidth = 0,
+  mask?: Float32Array,
 ): GelTypeGuess {
-  const { r, g, b, sat } = meanRgb(rgba);
+  const { r, g, b, sat } = bandMeanRgb(rgba, mask);
   const reasons: GelTypeGuess['reasons'] = [];
   const blue = b > r * 1.08 && b > g * 1.03 && sat > 0.04;
   const red = r > b * 1.08 && sat > 0.04;

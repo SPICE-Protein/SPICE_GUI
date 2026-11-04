@@ -1,3 +1,5 @@
 allowBuilds:
   esbuild: true
   '@scarf/scarf': true
+  edgedriver: false
+  geckodriver: false

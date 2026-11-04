@@ -13,7 +13,7 @@
   });
 </script>
 
-<div class="tool-page">
+<div class="tool-page" data-testid="tool-page">
   <header class="tool-header">
     <button class="pix-btn-reset back-btn" onclick={() => goto('/tools')} title={m.toolsBack()}>
       <ArrowLeft size={14} /> {m.toolsBack()}

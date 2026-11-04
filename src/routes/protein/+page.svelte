@@ -23,6 +23,7 @@
   import { configureSpdClient, cachedProteinId, cachedSequenceId, cachedSequenceEntries, rememberProteinId, rememberSequenceId, lastProteinName, rememberProteinName } from '$lib/spd/store.svelte';
   import { normalizeSequence, normalizeEnvironment, normalizeModel, sequenceSha256 } from '$lib/spd/normalize';
   import { SpdApiError, spdToken, SPD_INPUT_PROTOCOL_VERSION, SPD_INFERENCE_PROTOCOL_VERSION } from '$lib/spd/client';
+  import { spdInspector } from '$lib/spd/inspector.svelte';
   import type { SpdEnvironmentInput, SpdGraphFold, SpdGraphNode, SpdModelInput, SpdProteinInput } from '$lib/spd/types';
   import { parseMutantsCsv, evaluateMutantsBatch } from '$lib/genome';
   import { queryPdbRedo, queryBioLip } from '$lib/backend/externalDbs';
@@ -440,6 +441,10 @@ Variant_M5,I32L + L45M + L50M`);
   // Everything except protein rows dedups server-side by identity hash, so
   // protein/sequence public ids are cached locally keyed by the normalized
   // sequence SHA-256 prefix.
+  function openFoldInspector() {
+    if (spdFoldId) spdInspector.open('fold', spdFoldId);
+  }
+
   function spdEnvironment(): SpdEnvironmentInput {
     return normalizeEnvironment({ ph: env.ph, temperatureK: env.tempK, pressureBar: env.pressureBar, ionicStrengthM: env.ionicStrengthM });
   }
@@ -1579,7 +1584,7 @@ Variant_M5,I32L + L45M + L50M`);
 </script>
 
   <!-- Hidden file input for structures and SPICE packages -->
-  <input type="file" accept=".pdb,.ent,.spicep,text/plain" bind:this={pdbFileInput} onchange={(e) => {
+  <input type="file" data-testid="protein-pdb-input" accept=".pdb,.ent,.spicep,text/plain" bind:this={pdbFileInput} onchange={(e) => {
     const f = e.currentTarget.files?.[0];
     if (f) {
       if (f.name.endsWith('.spicep')) {
@@ -1596,9 +1601,9 @@ Variant_M5,I32L + L45M + L50M`);
   {/if}
 
   <!-- Retro-style Menu Bar -->
-  <div class="menu-bar" style="display: flex; gap: 4px; padding: 4px 8px; background: var(--pix-bg-3); border-bottom: 2px solid var(--pix-border); font-size: 11px; z-index: 9999; align-items: center; flex: 0 0 auto;">
+  <div class="menu-bar" data-testid="protein-workbench" style="display: flex; gap: 4px; padding: 4px 8px; background: var(--pix-bg-3); border-bottom: 2px solid var(--pix-border); font-size: 11px; z-index: 9999; align-items: center; flex: 0 0 auto;">
     <div class="menu-item-container" class:menu-open={openMenuId === 'file'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'file' ? null : 'file'; }}>{m.menuFile()}</button>
+      <button class="menu-trigger" data-testid="protein-menu-file" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'file' ? null : 'file'; }}>{m.menuFile()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={() => pdbFileInput?.click()}>
           <FileUp size={12} /> {m.menuOpen()}
@@ -1620,7 +1625,7 @@ Variant_M5,I32L + L45M + L50M`);
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'modeling'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'modeling' ? null : 'modeling'; }}>{m.menuModeling()}</button>
+      <button class="menu-trigger" data-testid="protein-menu-modeling" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'modeling' ? null : 'modeling'; }}>{m.menuModeling()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={doFold} disabled={foldBusy}>
           <Dna size={12} /> {m.menuRunFold()}
@@ -1636,7 +1641,7 @@ Variant_M5,I32L + L45M + L50M`);
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'mutation'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'mutation' ? null : 'mutation'; }}>{m.menuMutation()}</button>
+      <button class="menu-trigger" data-testid="protein-menu-mutation" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'mutation' ? null : 'mutation'; }}>{m.menuMutation()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={() => { tab = 'mut'; }}>
           <Layers size={12} /> {m.menuScanMutations()}
@@ -1658,7 +1663,7 @@ Variant_M5,I32L + L45M + L50M`);
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'window'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'window' ? null : 'window'; }}>{m.menuWindow()}</button>
+      <button class="menu-trigger" data-testid="protein-menu-window" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'window' ? null : 'window'; }}>{m.menuWindow()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {tab === 'fold' ? 'active' : ''}" onclick={() => { tab = 'fold'; }}>
           {m.menuPaneFolding()}
@@ -1758,7 +1763,12 @@ Variant_M5,I32L + L45M + L50M`);
             <button class="pix-btn-reset" disabled={spdBusy} onclick={querySpdExact} style="flex:1; padding: 2px 5px; font-size:10px;">{spdBusy ? m.checking() : m.spdQuery()}</button>
             <button class="pix-btn-reset" disabled={spdBusy || !folded} onclick={publishToSpd} style="flex:1; padding: 2px 5px; font-size:10px;">{m.spdPublish()}</button>
           </div>
-          {#if spdFoldId}<div class="pix-dim" style="margin-top:4px; font-size:10px; word-break:break-all;">{m.spdFoldIdLabel()} {spdFoldId}</div>{/if}
+          {#if spdFoldId}
+            <div class="pix-dim" style="margin-top:4px; font-size:10px; word-break:break-all; display:flex; align-items:center; gap:6px;">
+              <span style="flex:1; min-width:0;">{m.spdFoldIdLabel()} {spdFoldId}</span>
+              <button class="pix-btn-reset" type="button" onclick={openFoldInspector} style="flex:0 0 auto; padding:1px 5px; font-size:9px; border:1px solid var(--pix-border);">{m.spdInspectorDetails()}</button>
+            </div>
+          {/if}
           {#if spdMessage}<div class="pix-dim" style="margin-top:4px; font-size:10px; word-break:break-word;">{spdMessage}</div>{/if}
         </div>
       </Card>

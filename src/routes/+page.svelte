@@ -34,7 +34,7 @@
   });
 </script>
 
-<div class="welcome-container" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; overflow-y: auto; background: var(--pix-bg); padding: 32px; box-sizing: border-box; font-family: var(--pix-font); gap: 24px;">
+<div class="welcome-container" data-testid="welcome-page" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; overflow-y: auto; background: var(--pix-bg); padding: 32px; box-sizing: border-box; font-family: var(--pix-font); gap: 24px;">
   
   <!-- ============ HEADER SECTION ============ -->
   <header class="welcome-header pix-panel" style="padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; border-color: var(--pix-border-hi); position: relative; overflow: hidden; background: linear-gradient(135deg, var(--pix-panel) 80%, rgba(255, 159, 28, 0.03));">
@@ -74,7 +74,7 @@
     <!-- Protein Folding Card -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="launch-card pix-panel" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/protein')}>
+    <div data-testid="launch-protein" class="launch-card pix-panel" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/protein')}>
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="card-icon" style="background: rgba(255, 159, 28, 0.08); border: 2px solid var(--pix-accent); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-accent);">
           <FlaskConical size={24} />
@@ -96,7 +96,7 @@
     <!-- Gene Editing Card -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="launch-card pix-panel cyan-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/gene')}>
+    <div data-testid="launch-gene" class="launch-card pix-panel cyan-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/gene')}>
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="card-icon" style="background: rgba(76, 214, 255, 0.08); border: 2px solid var(--pix-cyan); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-cyan);">
           <Dna size={24} />
@@ -118,7 +118,7 @@
     <!-- Project Hub Card -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="launch-card pix-panel green-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/project')}>
+    <div data-testid="launch-project" class="launch-card pix-panel green-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/project')}>
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="card-icon" style="background: rgba(107, 231, 122, 0.08); border: 2px solid var(--pix-green); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-green);">
           <Folder size={24} />
@@ -140,7 +140,7 @@
     <!-- Tools Hub Card -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="launch-card pix-panel" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/tools')}>
+    <div data-testid="launch-tools" class="launch-card pix-panel" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/tools')}>
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="card-icon" style="background: rgba(226, 180, 72, 0.08); border: 2px solid var(--pix-accent-2); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-accent-2);">
           <Wrench size={22} />
@@ -162,7 +162,7 @@
     <!-- System Settings Card -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="launch-card pix-panel purple-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/settings')}>
+    <div data-testid="launch-settings" class="launch-card pix-panel purple-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/settings')}>
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="card-icon" style="background: rgba(180, 140, 255, 0.08); border: 2px solid var(--pix-purple); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-purple);">
           <Settings size={22} />

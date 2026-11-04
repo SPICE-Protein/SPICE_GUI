@@ -2,6 +2,7 @@
 // crop-free pixel adjustments and the grayscale planes used by detection.
 import type { GelExposure, GelProject } from './types';
 import { toGrayPlane } from './gelmath';
+import { channelPlane } from './presets';
 import {
   bytesToDataUrl,
   canvasToDataUrl,
@@ -15,8 +16,11 @@ export interface ProcessedImage {
   canvas: HTMLCanvasElement;
   /** Grayscale before display adjustments (camera data). */
   rawGray: Float32Array;
-  /** Grayscale after adjustments (what detection sees). */
+  /** Grayscale after adjustments (also used for geometry). */
   gray: Float32Array;
+  /** Plane lane/band detection thresholds. Same reference as `gray` unless a
+   *  stain preset selects an explicit colour channel. */
+  detectGray: Float32Array;
   width: number;
   height: number;
 }
@@ -129,12 +133,19 @@ export function renderProcessed(exposure: GelExposure, project: GelProject, img:
 
   const data = ctx.getImageData(0, 0, rw, rh);
   const rawGray = toGrayPlane(data);
+  // Explicit colour channels come from the camera pixels, before display
+  // adjustments: a gamma curve would distort the channel ratio the preset
+  // relies on. Luma keeps the adjusted plane the editor has always used.
+  const channel = project.detect?.channel ?? 'auto';
+  const channelGray =
+    channel === 'auto' || channel === 'luma' ? null : channelPlane(data.data, rw, rh, channel);
   if (project.display === 'color') {
-    return { canvas, rawGray, gray: rawGray, width: rw, height: rh };
+    return { canvas, rawGray, gray: rawGray, detectGray: channelGray ?? rawGray, width: rw, height: rh };
   }
   applyAdjustments(data.data, project);
   ctx.putImageData(data, 0, 0);
-  return { canvas, rawGray, gray: toGrayPlane(data), width: rw, height: rh };
+  const gray = toGrayPlane(data);
+  return { canvas, rawGray, gray, detectGray: channelGray ?? gray, width: rw, height: rh };
 }
 
 export function applyAdjustments(px: Uint8ClampedArray, project: GelProject) {

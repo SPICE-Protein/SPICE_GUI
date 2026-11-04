@@ -4,6 +4,7 @@
 // fine rotation applied, before cropping), so changing the crop only selects
 // which wells are shown and never moves names, markers or annotations.
 import type { GelKind } from './ladders';
+import { defaultDetectConfig, type GelDetectConfig } from './presets';
 
 export type GelType = GelKind;
 export type DisplayMode = 'gray' | 'color';
@@ -182,6 +183,8 @@ export interface GelProject {
   };
   crop: { left: number; top: number; right: number; bottom: number };
   gelType: GelType;
+  /** Stain preset and advanced lane/band detection settings. */
+  detect: GelDetectConfig;
   unit: Unit;
   ladderId: string;
   /** Local, project-resident ladder definitions. */
@@ -244,6 +247,7 @@ export function emptyProject(): GelProject {
     },
     crop: { left: 0, top: 0, right: 0, bottom: 0 },
     gelType: 'dna',
+    detect: defaultDetectConfig(),
     unit: 'bp',
     ladderId: 'gr1kb',
     customLadders: [],

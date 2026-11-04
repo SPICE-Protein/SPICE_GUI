@@ -1452,6 +1452,7 @@
 >
   <input
     bind:this={imageInput}
+    data-testid="blot-image-input"
     type="file"
     accept="image/png,image/jpeg,image/webp,image/tiff,.tif,.tiff"
     style="display:none"

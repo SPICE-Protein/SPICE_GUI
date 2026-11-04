@@ -7,6 +7,7 @@
   import { backend, isTauri } from '$lib/backend/api';
   import type { DownloadProgress, ModelStatus } from '$lib/backend/types';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
+  import Toaster from '$lib/ui/Toaster.svelte';
   import * as m from '$lib/paraglide/messages.js';
   import { currentLocale, toggleLang, setLang } from '$lib/i18n.svelte.ts';
   import { 
@@ -395,13 +396,13 @@
 
 <svelte:window onkeydown={(e) => { if (recordingId) handleRecordingKeyDown(e); }} />
 
-<div class="settings-page" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 48px 12px; font-family: var(--pix-font); height: 100%; box-sizing: border-box; overflow-y: auto; background: var(--pix-bg-1);">
+<div class="settings-page" data-testid="settings-page" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 48px 12px; font-family: var(--pix-font); height: 100%; box-sizing: border-box; overflow-y: auto; background: var(--pix-bg-1);">
   <!-- Back and Header Row -->
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
     <button class="pix-btn-reset" onclick={() => goto('/')} style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: bold; color: var(--pix-cyan);">
       <ArrowLeft size={12} /> {m.appSettings()} / {m.backToWorkspace()}
     </button>
-    <button class="pix-btn ok" onclick={saveAllSettings} style="padding: 4px 12px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+    <button class="pix-btn ok" data-testid="settings-save" onclick={saveAllSettings} style="padding: 4px 12px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
       <Save size={11} /> {m.saveAllConfigs()}
     </button>
   </div>
@@ -411,6 +412,7 @@
     <div class="settings-sidebar" style="width: 180px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
       <button 
         class="pix-sidebar-btn" 
+        data-testid="settings-tab-general"
         class:active={activeTab === 'general'}
         onclick={() => activeTab = 'general'}
         style={activeTab === 'general' ? 'border-color: var(--pix-accent-2); color: #fff; background: rgba(226, 180, 72, 0.15); font-weight: bold; box-shadow: 0 0 6px rgba(226, 180, 72, 0.3);' : ''}
@@ -419,6 +421,7 @@
       </button>
       <button 
         class="pix-sidebar-btn" 
+        data-testid="settings-tab-gene"
         class:active={activeTab === 'gene'}
         onclick={() => activeTab = 'gene'}
         style={activeTab === 'gene' ? 'border-color: var(--pix-cyan); color: #fff; background: rgba(76, 214, 255, 0.15); font-weight: bold; box-shadow: 0 0 6px rgba(76, 214, 255, 0.3);' : ''}
@@ -427,6 +430,7 @@
       </button>
       <button 
         class="pix-sidebar-btn" 
+        data-testid="settings-tab-protein"
         class:active={activeTab === 'protein'}
         onclick={() => activeTab = 'protein'}
         style={activeTab === 'protein' ? 'border-color: var(--pix-accent); color: #fff; background: rgba(166, 76, 255, 0.15); font-weight: bold; box-shadow: 0 0 6px rgba(166, 76, 255, 0.3);' : ''}
@@ -435,6 +439,7 @@
       </button>
       <button 
         class="pix-sidebar-btn" 
+        data-testid="settings-tab-keymap"
         class:active={activeTab === 'keymap'}
         onclick={() => activeTab = 'keymap'}
         style={activeTab === 'keymap' ? 'border-color: #ff5df6; color: #fff; background: rgba(255, 93, 246, 0.15); font-weight: bold; box-shadow: 0 0 6px rgba(255, 93, 246, 0.3);' : ''}
@@ -566,21 +571,21 @@
               <div style="display: flex; flex-direction: column; gap: 4px;">
                 <span class="pix-dim">{m.spdBaseUrlLabel()}</span>
                 <div style="display: flex; gap: 6px;">
-                  <input class="pix-input" type="url" bind:value={spdBaseUrl} placeholder={defaultSpdBaseUrl()} style="flex: 1; padding: 4px 6px;" />
-                  <button class="pix-btn-reset" disabled={spdBusy} onclick={checkSpdHealth} style="padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--pix-border);">{spdBusy ? m.checking() : m.checkHealth()}</button>
+                  <input class="pix-input" data-testid="spd-base-url" type="url" bind:value={spdBaseUrl} placeholder={defaultSpdBaseUrl()} style="flex: 1; padding: 4px 6px;" />
+                  <button class="pix-btn-reset" data-testid="spd-health-btn" disabled={spdBusy} onclick={checkSpdHealth} style="padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--pix-border);">{spdBusy ? m.checking() : m.checkHealth()}</button>
                 </div>
-                {#if spdHealth}<div class="pix-num good" style="font-size: 9px;">{spdHealth.service} · {spdHealth.status}{spdHealth.apiVersion ? ` · v${spdHealth.apiVersion}` : ''}</div>{/if}
+                {#if spdHealth}<div class="pix-num good" data-testid="spd-health-status" style="font-size: 9px;">{spdHealth.service} · {spdHealth.status}{spdHealth.apiVersion ? ` · v${spdHealth.apiVersion}` : ''}</div>{/if}
 
                 <span class="pix-dim">{m.spdTokenLabel()}</span>
                 <div style="display: flex; gap: 6px;">
-                  <input class="pix-input" type="password" bind:value={spdApiToken} placeholder={m.spdTokenPlaceholder()} style="flex: 1; padding: 4px 6px; font-family: monospace;" />
-                  <button class="pix-btn-reset" disabled={spdBusy} onclick={verifySpdToken} style="padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--pix-border);">{spdBusy ? m.checking() : m.spdVerifyToken()}</button>
+                  <input class="pix-input" data-testid="spd-token-input" type="password" bind:value={spdApiToken} placeholder={m.spdTokenPlaceholder()} style="flex: 1; padding: 4px 6px; font-family: monospace;" />
+                  <button class="pix-btn-reset" data-testid="spd-verify-btn" disabled={spdBusy} onclick={verifySpdToken} style="padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--pix-border);">{spdBusy ? m.checking() : m.spdVerifyToken()}</button>
                 </div>
                 <div class="pix-dim" style="font-size: 9px; line-height: 1.4;">{m.spdTokenGuide()}
                   <button class="pix-btn-reset" onclick={openSpdSite} style="margin-left: 4px; color: var(--pix-cyan); border-color: var(--pix-cyan); font-size: 9px; padding: 1px 6px;">{m.spdTokenLink()}</button>
                 </div>
                 {#if spdUser}
-                  <div class="pix-num good" style="font-size: 9px; word-break: break-all;">{m.spdIdentityOk({ v1: spdUser.user.displayName || spdUser.user.orcidId || spdUser.user.id || '?', v2: (spdUser.roles || []).map((r) => r.role).join(', ') || 'user' })}</div>
+                  <div class="pix-num good" data-testid="spd-user-status" style="font-size: 9px; word-break: break-all;">{m.spdIdentityOk({ v1: spdUser.user.displayName || spdUser.user.orcidId || spdUser.user.id || '?', v2: (spdUser.roles || []).map((r) => r.role).join(', ') || 'user' })}</div>
                 {/if}
                 {#if spdError}<div class="pix-num bad" style="font-size: 9px; word-break: break-all;">{spdError}</div>{/if}
               </div>
@@ -914,6 +919,8 @@
     </div>
   </div>
 </div>
+
+<Toaster />
 
 <style>
   .pix-sidebar-btn {

@@ -735,7 +735,7 @@
           <FileUp size={11} /> {m.qpcrUploadBtn()}
         </button>
       </div>
-      <button class="pix-btn-reset full" onclick={loadExample}>
+      <button class="pix-btn-reset full" data-testid="qpcr-load-example" onclick={loadExample}>
         <FlaskConical size={11} /> {m.qpcrExampleBtn()}
       </button>
       <button class="pix-btn full" onclick={() => plateInput?.click()}>
@@ -996,7 +996,7 @@
           <h2>{m.qpcrNoDataTitle()}</h2>
           <p>{m.qpcrNoDataHint()}</p>
           <div class="empty-actions">
-            <button class="pix-btn ok" onclick={loadExample}>
+            <button class="pix-btn ok" data-testid="qpcr-load-example" onclick={loadExample}>
               <FlaskConical size={12} /> {m.qpcrExampleBtn()}
             </button>
             <button class="pix-btn" onclick={() => dataInput?.click()}>

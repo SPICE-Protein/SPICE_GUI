@@ -50,6 +50,12 @@ libmsa = "0.2.0"
 mafft = "0.1.2"
 zip = "8.6.0"
 bio = "4.0.1"
+tauri-plugin-wdio-webdriver = { version = "1.5.1", optional = true }
+tauri-plugin-wdio = { version = "1.5.1", optional = true }
+# Gel binarization: Otsu/adaptive threshold and morphology on the native side.
+# Only the core algorithms are needed; image codecs are handled by the webview.
+image = { version = "0.25.8", default-features = false }
+imageproc = { version = "0.27.0", default-features = false }
 
 # Cargo patches do NOT propagate from a dependency's manifest — they only apply
 # from the root crate. spice_engine's own Cargo.toml declares these patches; we
@@ -60,4 +66,9 @@ bio = "4.0.1"
 [patch.crates-io]
 ewald = { git = "https://github.com/SPICE-Protein/ewald.git" }
 bio_files = { git = "https://github.com/SPICE-Protein/bio_files.git" }
+
+[features]
+# Desktop E2E only: exposes the WebDriver server and the WDIO helper commands
+# used by @wdio/tauri-service. Never enable this in release bundles.
+webdriver = ["dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 

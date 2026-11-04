@@ -25,6 +25,7 @@ import type {
 } from './types';
 import { activeExposure, emptyProject, isGelProject, migrateV1, newId, newLaneId } from './types';
 import { ladderById, normalizeSizes, type LadderDef } from './ladders';
+import { sanitizeDetectConfig } from './presets';
 import { buildFigure } from './figure';
 import { rasterizeFigure } from './render';
 import { loadImageElement, renderProcessed } from './pipeline';
@@ -343,7 +344,9 @@ function sanitizeExposures(value: unknown): GelExposure[] {
   return out;
 }
 
-function normalizeProject(p: GelProject): GelProject {
+/** Validate every field the editor reads. Exported so the localStorage
+ *  loaders use the same path as project documents. */
+export function normalizeProject(p: GelProject): GelProject {
   const base = emptyProject();
   const exposures = sanitizeExposures(p.exposures);
   const lanes = sanitizeLanes(p.lanes);
@@ -366,6 +369,7 @@ function normalizeProject(p: GelProject): GelProject {
     adjust: sanitizeAdjust(p.adjust),
     crop: sanitizeCrop(p.crop),
     gelType,
+    detect: sanitizeDetectConfig(p.detect),
     unit,
     ladderId: typeof p.ladderId === 'string' && p.ladderId ? p.ladderId : base.ladderId,
     customLadders: sanitizeLadders(p.customLadders),

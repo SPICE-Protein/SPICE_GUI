@@ -348,12 +348,13 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="proj-workbench">
+<div class="proj-workbench" data-testid="project-workbench">
   <!-- ================= TITLEBAR ================= -->
   <div class="proj-titlebar">
     <span class="tb-proj"><Package size={14} /></span>
     {#if pj}
       <input
+        data-testid="project-name"
         class="tb-name"
         value={pj.meta.name}
         onchange={(e) => projectStore.renameProject((e.target as HTMLInputElement).value)}
@@ -371,13 +372,13 @@
       <button class="tb-btn" onclick={doSave} title="{m.projectSaveBtn()} · Ctrl+S"><Save size={13} /></button>
       <button class="tb-btn" onclick={doSaveAs} title={m.projectSaveAsBtn()}><SaveAll size={13} /></button>
     {/if}
-    <button class="tb-btn" onclick={openNewProject} title={m.projectNewBtn()}><FilePlus size={13} /></button>
+    <button class="tb-btn" data-testid="project-new" onclick={openNewProject} title={m.projectNewBtn()}><FilePlus size={13} /></button>
     <button class="tb-btn" onclick={() => openProjectFile?.click()} title={m.projectOpenBtn()}><FolderOpen size={13} /></button>
     {#if !pj && projectStore.hasSessionSnapshot}
       <button class="tb-btn" onclick={tryRestoreSession} title={m.projectResumeBtn()}><RotateCcw size={13} /></button>
     {/if}
     {#if pj}
-      <button class="tb-btn tb-close" onclick={requestClose} title={m.projectCloseBtn()}><X size={13} /></button>
+      <button class="tb-btn tb-close" data-testid="project-close" onclick={requestClose} title={m.projectCloseBtn()}><X size={13} /></button>
     {/if}
   </div>
 
@@ -589,7 +590,7 @@
               >✕</button>
             </div>
           {/each}
-          <button class="jtab-new" title={m.projectJournalNewPage()} onclick={() => projectStore.addJournalPage()}>
+          <button class="jtab-new" data-testid="project-journal-new" title={m.projectJournalNewPage()} onclick={() => projectStore.addJournalPage()}>
             <Plus size={12} />
           </button>
         </div>
@@ -597,21 +598,21 @@
         {#if pages.length === 0}
           <div class="editor-empty">
             <div class="empty-hint">{m.projectJournalEmpty()}</div>
-            <button class="pix-btn ok" onclick={() => projectStore.addJournalPage()}>{m.projectJournalNewPage()}</button>
+            <button class="pix-btn ok" data-testid="project-journal-new" onclick={() => projectStore.addJournalPage()}>{m.projectJournalNewPage()}</button>
           </div>
         {:else}
           <!-- breadcrumb-ish meta bar -->
           <div class="jmeta">
-            <input class="jm-title" placeholder={m.projectJournalTitlePh()} bind:value={titleBuf} />
+            <input class="jm-title" data-testid="project-journal-title" placeholder={m.projectJournalTitlePh()} bind:value={titleBuf} />
             <select class="jm-cat" bind:value={catBuf}>
               {#each ['General', 'Experiment', 'Meeting', 'Protocol'] as c}
                 <option value={c}>{c}</option>
               {/each}
             </select>
-            <input class="jm-tags" placeholder={m.projectJournalTags()} bind:value={tagsBuf} />
+            <input class="jm-tags" data-testid="project-journal-tags" placeholder={m.projectJournalTags()} bind:value={tagsBuf} />
             <span class="jm-date pix-dim">{activePage?.date}</span>
             <span class="tb-spacer"></span>
-            <button class="pix-btn ok" disabled={!activePage || !hasSlides(mdBuf)}
+            <button class="pix-btn ok" data-testid="project-presenter" disabled={!activePage || !hasSlides(mdBuf)}
               onclick={() => (presenterOpen = true)} title={m.projectPresenterHint()}>
               <Play size={12} /> {m.projectPresenterBtn()}
             </button>
@@ -632,15 +633,15 @@
 <!-- ================= MODALS ================= -->
 {#if showNewModal}
   <div class="modal-overlay" role="dialog" aria-modal="true">
-    <div class="modal-box new-proj-box">
+    <div class="modal-box new-proj-box" data-testid="project-new-modal">
       <div class="modal-title">{m.projectNewPromptTitle()}</div>
       <!-- svelte-ignore a11y_autofocus -->
-      <input class="pix-input" placeholder={m.projectNamePh()} bind:value={npName} autofocus
+      <input class="pix-input" data-testid="project-new-name" placeholder={m.projectNamePh()} bind:value={npName} autofocus
         onkeydown={(e) => { if (e.key === 'Enter') confirmNewProject(); }} />
       <input class="pix-input" placeholder={m.projectPiPh()} bind:value={npPi} />
       <textarea class="pix-input" rows={3} placeholder={m.projectDescPh()} bind:value={npDesc}></textarea>
       <div class="modal-btns">
-        <button class="pix-btn ok" onclick={confirmNewProject} disabled={!npName.trim()}>{m.projectNewBtn()}</button>
+        <button class="pix-btn ok" data-testid="project-new-create" onclick={confirmNewProject} disabled={!npName.trim()}>{m.projectNewBtn()}</button>
         <button class="pix-btn-reset" onclick={() => (showNewModal = false)}>{m.projectPresenterExit()}</button>
       </div>
     </div>
@@ -649,7 +650,7 @@
 
 {#if showCloseConfirm}
   <div class="modal-overlay" role="dialog" aria-modal="true">
-    <div class="modal-box new-proj-box">
+    <div class="modal-box new-proj-box" data-testid="project-close-modal">
       <div class="modal-title">{m.projectCloseConfirmTitle()}</div>
       <div class="modal-desc">{m.projectCloseConfirmDesc()}</div>
       <div class="modal-btns">

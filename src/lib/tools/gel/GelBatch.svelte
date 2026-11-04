@@ -11,6 +11,7 @@
   import { runBatchJob } from '$lib/tools/shared/batchWorker';
   import { saveZip } from '$lib/tools/shared/zipExport';
   import { buildGelBatch, type GelBatchBuild } from './batch';
+  import { detectConfigForNewImport } from './storage';
 
   interface GelBatchOutcome {
     ok: number;
@@ -83,15 +84,17 @@
         current = done;
         total = all;
       };
+      const detect = detectConfigForNewImport();
       const batch = await runBatchJob<GelBatchBuild>({
         createWorker: () => new Worker(new URL('./batch.worker.ts', import.meta.url), { type: 'module' }),
         files: selected,
-        payload: { ladderId: ladderId || undefined, dpi: exportDpi },
+        payload: { ladderId: ladderId || undefined, dpi: exportDpi, detect },
         onProgress: (p) => report(p.done, p.total),
         fallback: () =>
           buildGelBatch(selected, {
             ladderId: ladderId || undefined,
             dpi: exportDpi,
+            detect,
             onProgress: (p) => report(p.current, p.total),
           }),
       });
@@ -175,6 +178,7 @@
       </optgroup>
     </select>
   </label>
+  <div class="pix-dim tiny">{m.gelBatchDetectHint()}</div>
 
   {#if warning}
     <div class="batch-warn">{warning}</div>

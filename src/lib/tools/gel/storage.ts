@@ -4,6 +4,8 @@
 import type { GelLayoutSettings, GelProject } from './types';
 import { forStorage, isGelProject, migrateV1, type GelProjectV1 } from './types';
 import type { LadderDef } from './ladders';
+import { defaultDetectConfig, sanitizeDetectConfig, type GelDetectConfig } from './presets';
+import { normalizeProject } from './projectDoc';
 
 const SNAPSHOT_KEY = 'spice_gel_project_v2';
 const LEGACY_KEY = 'spice_gel_project_v1';
@@ -11,6 +13,7 @@ const RECENT_INDEX = 'spice_gel_recent_index_v2';
 const RECENT_PREFIX = 'spice_gel_recent_v2_';
 const STYLES_KEY = 'spice_gel_styles_v1';
 const LIBRARY_KEY = 'spice_gel_ladder_library_v1';
+const DETECT_DEFAULTS_KEY = 'spice_gel_detect_defaults_v1';
 const MAX_RECENT = 6;
 
 export function loadSnapshot(): GelProject | null {
@@ -18,7 +21,7 @@ export function loadSnapshot(): GelProject | null {
     const raw = localStorage.getItem(SNAPSHOT_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (isGelProject(parsed)) return parsed;
+      if (isGelProject(parsed)) return normalizeProject(parsed);
     }
     const legacy = localStorage.getItem(LEGACY_KEY);
     if (legacy) {
@@ -93,7 +96,7 @@ export function loadRecent(id: string): GelProject | null {
     const raw = localStorage.getItem(RECENT_PREFIX + id);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return isGelProject(parsed) ? parsed : null;
+    return isGelProject(parsed) ? normalizeProject(parsed) : null;
   } catch {
     return null;
   }
@@ -159,6 +162,42 @@ export function removeStyle(id: string) {
   } catch {
     /* ignore */
   }
+}
+
+/** Detection configuration used for new imports and batch runs. Built-in
+ *  presets stay read-only; this stores the user's last "save as default". */
+export function loadDetectDefault(): GelDetectConfig | null {
+  try {
+    const raw = localStorage.getItem(DETECT_DEFAULTS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { version?: unknown; config?: unknown };
+    if (parsed?.version !== 1) return null;
+    return sanitizeDetectConfig(parsed.config);
+  } catch {
+    return null;
+  }
+}
+
+export function saveDetectDefault(config: GelDetectConfig): boolean {
+  try {
+    localStorage.setItem(DETECT_DEFAULTS_KEY, JSON.stringify({ version: 1, config }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearDetectDefault() {
+  try {
+    localStorage.removeItem(DETECT_DEFAULTS_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Fresh imports inherit the saved default; anything else starts neutral. */
+export function detectConfigForNewImport(): GelDetectConfig {
+  return loadDetectDefault() ?? defaultDetectConfig();
 }
 
 export interface LadderLibrary {

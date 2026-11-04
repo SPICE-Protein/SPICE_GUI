@@ -57,7 +57,10 @@ export async function uploadTextArtifact(text: string, leafName: string): Promis
   const hex = await sha256Hex(bytes);
   const objectKey = `users/${uid}/vectors/${Date.now()}_${leafName.replace(/[^A-Za-z0-9._-]/g, '_')}`;
   const grant = await client.uploadPreflight(objectKey, SEQUENCE_MEDIA_TYPE, bytes.length);
-  const receipt = await client.putUploadBytes(grant.uploadUrl, SEQUENCE_MEDIA_TYPE, bytes);
+  // Build the PUT URL from the configured API base, not from the grant: a
+  // grant minted by a local worker can carry the production host baked in.
+  const putUrl = grant.token ? client.uploadUrl(grant.token) : grant.uploadUrl;
+  const receipt = await client.putUploadBytes(putUrl, SEQUENCE_MEDIA_TYPE, bytes);
   if (receipt.sha256 && receipt.sha256 !== hex) {
     throw new Error(`server digest ${receipt.sha256.slice(0, 12)}… does not match local ${hex.slice(0, 12)}…`);
   }
@@ -182,8 +185,8 @@ export function exportItemsToRows(items: SpdEnzymeExportItem[]): SyncedEnzymeRow
  *  the site. Type IIS (offset beyond the site) and IUPAC-ambiguous sites are
  *  skipped — SPD's cutPosition grammar (letters + one marker, no parentheses)
  *  cannot express them without lying about the geometry. */
-export function seedableBuiltInEnzymes(): { entries: { name: string; recognitionSite: string; cutPosition: string; enzymeType: string }[]; skipped: number } {
-  const entries: { name: string; recognitionSite: string; cutPosition: string; enzymeType: string }[] = [];
+export function seedableBuiltInEnzymes(): { entries: { name: string; recognitionSite: string; cutPosition: string; enzymeType: string; targetMolecule: 'dna' }[]; skipped: number } {
+  const entries: { name: string; recognitionSite: string; cutPosition: string; enzymeType: string; targetMolecule: 'dna' }[] = [];
   let skipped = 0;
   const seen = new Set<string>();
   for (const enzyme of Object.values(defaultEnzymesByName as Record<string, RestrictionEnzyme | undefined>)) {
@@ -204,6 +207,7 @@ export function seedableBuiltInEnzymes(): { entries: { name: string; recognition
       recognitionSite: site,
       cutPosition: `${site.slice(0, top)}^${site.slice(top)}`,
       enzymeType: 'type_ii',
+      targetMolecule: 'dna',
     });
   }
   entries.sort((a, b) => a.name.localeCompare(b.name));

@@ -10,6 +10,7 @@
   import { Settings, X, RefreshCw, RotateCcw, FlaskConical, Dna, Sparkles, Home, Folder, Wrench } from 'lucide-svelte';
   import { aiState } from '$lib/ui/aiState.svelte.ts';
   import AiCopilot from '$lib/ui/AiCopilot.svelte';
+  import SpdInspector from '$lib/spd/SpdInspector.svelte';
   import 'svelte-multistyle-ui/theme.css';
   import '../lib/app.css';
 
@@ -44,6 +45,12 @@
   });
 
   onMount(() => {
+    // E2E-only frontend bridge for @wdio/tauri-service. The build script sets
+    // VITE_WDIO_E2E=1, so release bundles never import the test plugin.
+    if (import.meta.env.VITE_WDIO_E2E === '1') {
+      void import('@wdio/tauri-plugin');
+    }
+
     applyTheme();
     document.body.classList.add('spice-app');
 
@@ -104,7 +111,8 @@
     <!-- Top-bar navigation across the workstations -->
     <div class="workspace-switcher" style="display: flex; gap: 8px; align-items: center;">
       <button 
-        class="pix-btn-reset {pageId === 'welcome' ? 'active-ws' : ''}" 
+        class="pix-btn-reset {pageId === 'welcome' ? 'active-ws' : ''}"
+        data-testid="nav-home" 
         style="padding: 4px 12px; font-weight: bold; border-color: {pageId === 'welcome' ? 'var(--pix-accent-2)' : 'var(--pix-border)'}; background: {pageId === 'welcome' ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {pageId === 'welcome' ? 'var(--pix-accent-2)' : 'var(--pix-fg-dim)'}; cursor: pointer; display: flex; align-items: center; justify-content: center;"
         onclick={() => goto('/')}
         title={m.navHomeTooltip()}
@@ -112,14 +120,16 @@
         <Home size={14} />
       </button>
       <button 
-        class="pix-btn-reset {pageId === 'gene' ? 'active-ws' : ''}" 
+        class="pix-btn-reset {pageId === 'gene' ? 'active-ws' : ''}"
+        data-testid="nav-gene" 
         style="padding: 4px 16px; font-weight: bold; border-color: {pageId === 'gene' ? 'var(--pix-cyan)' : 'var(--pix-border)'}; background: {pageId === 'gene' ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {pageId === 'gene' ? 'var(--pix-cyan)' : 'var(--pix-fg-dim)'}; cursor: pointer;"
         onclick={() => goto('/gene')}
       >
         {m.tabGene()}
       </button>
       <button 
-        class="pix-btn-reset {pageId === 'protein' ? 'active-ws' : ''}" 
+        class="pix-btn-reset {pageId === 'protein' ? 'active-ws' : ''}"
+        data-testid="nav-protein" 
         style="padding: 4px 16px; font-weight: bold; border-color: {pageId === 'protein' ? 'var(--pix-accent)' : 'var(--pix-border)'}; background: {pageId === 'protein' ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {pageId === 'protein' ? 'var(--pix-accent)' : 'var(--pix-fg-dim)'}; cursor: pointer;"
         onclick={() => goto('/protein')}
       >
@@ -127,6 +137,7 @@
       </button>
       <button
         class="pix-btn-reset {pageId === 'project' ? 'active-ws' : ''}"
+        data-testid="nav-project"
         style="padding: 4px 16px; font-weight: bold; border-color: {pageId === 'project' ? 'var(--pix-green)' : 'var(--pix-border)'}; background: {pageId === 'project' ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {pageId === 'project' ? 'var(--pix-green)' : 'var(--pix-fg-dim)'}; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
         onclick={() => goto('/project')}
       >
@@ -134,6 +145,7 @@
       </button>
       <button
         class="pix-btn-reset {pageId === 'tools' ? 'active-ws' : ''}"
+        data-testid="nav-tools"
         style="padding: 4px 16px; font-weight: bold; border-color: {pageId === 'tools' ? 'var(--pix-accent-2)' : 'var(--pix-border)'}; background: {pageId === 'tools' ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {pageId === 'tools' ? 'var(--pix-accent-2)' : 'var(--pix-fg-dim)'}; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
         onclick={() => goto('/tools')}
       >
@@ -154,7 +166,7 @@
         AI Co-Pilot
       </button>
 
-      <button class="pix-btn-reset" onclick={() => goto('/settings')} style="cursor: pointer;"><Settings size={14} /> {m.appSettings()}</button>
+      <button class="pix-btn-reset" data-testid="nav-settings" onclick={() => goto('/settings')} style="cursor: pointer;"><Settings size={14} /> {m.appSettings()}</button>
     </div>
   </header>
 
@@ -164,6 +176,7 @@
       {@render children()}
     </div>
     <AiCopilot />
+    <SpdInspector />
   </div>
 </main>
 

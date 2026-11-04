@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "e2e",
+  "description": "E2E-only capabilities for @wdio/tauri-service. Included by tauri.e2e.conf.json, never by release builds.",
+  "windows": ["main"],
+  "permissions": ["core:window:default", "wdio:default", "wdio-webdriver:default"]
+}

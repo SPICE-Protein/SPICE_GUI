@@ -12,7 +12,7 @@
   import { Save, FileUp, Sparkles } from 'lucide-svelte';
  import { Undo2, Redo2, RotateCw, FlipHorizontal2, Circle, Spline, Dna, FlaskConical, Globe, AlignLeft, Microscope, Scissors, Check } from 'lucide-svelte';
 import { Settings, Palette, ListTree, FileUp as FileUpIcon, Layers } from 'lucide-svelte';
-import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitive, Activity, BookOpen, Download, Folder, History, Terminal } from 'lucide-svelte';
+import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitive, Activity, BookOpen, Database, Download, Folder, History, Terminal } from 'lucide-svelte';
   import { aiState } from '$lib/ui/aiState.svelte.ts';
   import { identityStore } from '$lib/identity/store.svelte';
   import { createElnSignatureSnapshot, digestElnSignatureSnapshot } from '$lib/genome/biophysics/limsCollaboration';
@@ -51,7 +51,9 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   import ReverseTranslationPanel from '$lib/gene/panels/ReverseTranslationPanel.svelte';
   import ExpressionCassetteBuilder from '$lib/gene/ExpressionCassetteBuilder.svelte';
   import VectorTemplatePanel from '$lib/gene/VectorTemplatePanel.svelte';
+  import SpdGenePanel from '$lib/gene/SpdGenePanel.svelte';
   import type { LoadedVectorTemplate } from '$lib/spd/vectors';
+  import type { LoadedSpdGene } from '$lib/spd/genes';
   import { exportItemsToRows, seedEnzymesToSpd as seedBuiltInEnzymes } from '$lib/spd/vectors';
   import { configureSpdClient } from '$lib/spd/store.svelte';
   import { spdToken } from '$lib/spd/client';
@@ -1368,6 +1370,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   // Expression design panels
   let showExpressionCassettePanel = $state(false);
   let showVectorTemplatePanel = $state(false);
+  let showSpdGenePanel = $state(false);
   let expressionCassette = $state<ExpressionCassette>({ id: 'cassette-1', parts: [], topology: 'linear' });
   let vectorTemplate = $state<VectorTemplate>({
     id: 'vector-1', name: '', topology: 'circular', sequence: '', features: [], insertionSites: []
@@ -1409,6 +1412,26 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     };
     pushToast('success', m.vtpSpdLoadTitle(), m.vtpSpdLoaded({ v1: plasmidName, v2: String(seq.length) }));
     pushLog(m.vtpSpdLogLoaded({ v1: plasmidName, v2: String(seq.length) }));
+  }
+
+  // Load an SPD gene record into the editor. Regions are already 1-based
+  // inclusive on both sides; RNA regions are deliberately not projected onto
+  // the DNA canvas.
+  function applySpdGene(loaded: LoadedSpdGene) {
+    dnaSeq = loaded.sequence;
+    plasmidName = loaded.record.symbol || loaded.record.name || 'SPD gene';
+    activeTab = loaded.record.topology === 'linear' ? 'linear' : 'circular';
+    geneFeatures = loaded.features.map((feature, index) => ({
+      id: index + 1,
+      name: feature.name,
+      start: feature.start,
+      end: feature.end,
+      type: feature.type,
+      color: getEnzymeColor(feature.name),
+      forward: feature.forward,
+    }));
+    pushHistory(`SPD gene: ${plasmidName}`, 'edit');
+    pushLog(`[SPD] Loaded gene ${loaded.geneId} (${loaded.sequence.length} bp, ${loaded.features.length} DNA regions)`);
   }
 
   function applyAssemblyResult(result: AssemblyResult) {
@@ -1842,6 +1865,20 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       pushLog(m.logUnevecLoaded({ v1: unevecDb.length, v2: res.demo ? m.logUnevecLocalCacheSuffix() : '' }));
     }).catch(() => {
       pushLog(m.logUnevecSyncFail());
+    });
+
+    // Seed the history with the starting document. HistoryManager.canUndo()
+    // requires more than one snapshot, so without this seed the first edit
+    // cannot be undone.
+    void tick().then(() => {
+      if (histMgr.getAll().length === 0) {
+        histMgr.push({
+          label: 'Initial state',
+          operationType: 'edit',
+          sequence: dnaSeq,
+          features: [...geneFeatures],
+        });
+      }
     });
   });
 
@@ -3031,16 +3068,16 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
 <svelte:window onkeydown={handleGlobalKeyDown} onclick={() => { openMenuId = null; }} />
 
-<div class="ove-editor" style="position: relative; flex: 1 1 auto; width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: {bgColor}; font-family: var(--pix-font);">
+<div class="ove-editor" data-testid="gene-workbench" style="position: relative; flex: 1 1 auto; width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: {bgColor}; font-family: var(--pix-font);">
  <!-- SnapGene parity: customizable background color -->
-  <input type="file" accept=".clustal,.aln,.fa,.fasta,.nexus,.nex,.phylip,.msf,.sto,.stockholm" bind:this={alignmentFileInput} onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) handleAlignmentFile(f); e.currentTarget.value = ''; }} style="display: none;" />
- <input type="file" accept=".spiceg,.dna,.gb,.gbk,.gbff,.genbank,.embl,.em,.fasta,.fa,.fna,.faa,.fastq,.fq,.seq,.txt" bind:this={geneFileInput} onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) handleGeneFile(f); e.currentTarget.value = ''; }} style="display: none;" />
-  <input type="file" accept=".ab1,.abif,.scf" bind:this={sangerFileInput} onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) handleSangerFile(f); e.currentTarget.value = ''; }} style="display: none;" />
+  <input type="file" data-testid="gene-alignment-input" accept=".clustal,.aln,.fa,.fasta,.nexus,.nex,.phylip,.msf,.sto,.stockholm" bind:this={alignmentFileInput} onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) handleAlignmentFile(f); e.currentTarget.value = ''; }} style="display: none;" />
+ <input type="file" data-testid="gene-file-input" accept=".spiceg,.dna,.gb,.gbk,.gbff,.genbank,.embl,.em,.fasta,.fa,.fna,.faa,.fastq,.fq,.seq,.txt" bind:this={geneFileInput} onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) handleGeneFile(f); e.currentTarget.value = ''; }} style="display: none;" />
+  <input type="file" data-testid="gene-sanger-input" accept=".ab1,.abif,.scf" bind:this={sangerFileInput} onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) handleSangerFile(f); e.currentTarget.value = ''; }} style="display: none;" />
 
   <!-- Retro-style Menu Bar -->
   <div class="menu-bar" style="display: flex; gap: 4px; padding: 4px 8px; background: var(--pix-bg-3); border-bottom: 2px solid var(--pix-border); font-size: 11px; z-index: 9999; align-items: center;">
     <div class="menu-item-container" class:menu-open={openMenuId === 'file'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'file' ? null : 'file'; }}>{m.menuFile()}</button>
+      <button class="menu-trigger" data-testid="gene-menu-file" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'file' ? null : 'file'; }}>{m.menuFile()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={() => geneFileInput?.click()}>
           <FileUpIcon size={12} /> {m.menuFileOpen()}
@@ -3053,6 +3090,9 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         </button>
         <button class="menu-action-btn" onclick={() => showUniprotPanel = !showUniprotPanel}>
           <Globe size={12} /> {m.menuFileUniprot()}
+        </button>
+        <button class="menu-action-btn {showSpdGenePanel ? 'active' : ''}" data-testid="gene-menu-spd" style="color: var(--pix-cyan);" onclick={() => showSpdGenePanel = !showSpdGenePanel}>
+          <Database size={12} /> {m.spdGeneMenu()}
         </button>
         <button class="menu-action-btn" onclick={() => showCollectionsPanel = !showCollectionsPanel}>
           <Folder size={12} /> {m.menuFileCollections()}
@@ -3072,7 +3112,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'edit'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'edit' ? null : 'edit'; }}>{m.menuEdit()}</button>
+      <button class="menu-trigger" data-testid="gene-menu-edit" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'edit' ? null : 'edit'; }}>{m.menuEdit()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn" onclick={undo} disabled={!canUndo}>
           <Undo2 size={12} /> {m.menuEditUndo()}
@@ -3104,7 +3144,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'cloning'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'cloning' ? null : 'cloning'; }}>{m.menuCloningDesign()}</button>
+      <button class="menu-trigger" data-testid="gene-menu-cloning" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'cloning' ? null : 'cloning'; }}>{m.menuCloningDesign()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {showEnzymeSelector ? 'active' : ''}" onclick={() => showEnzymeSelector = !showEnzymeSelector}>
           <Scissors size={12} /> {m.menuCloneEnzymes()}
@@ -3180,7 +3220,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'analysis'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'analysis' ? null : 'analysis'; }}>{m.menuAnalysisViews()}</button>
+      <button class="menu-trigger" data-testid="gene-menu-analysis" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'analysis' ? null : 'analysis'; }}>{m.menuAnalysisViews()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {showProteinView ? 'active' : ''}" onclick={() => showProteinView = !showProteinView}>
           <Layers size={12} /> {m.menuViewProtein()}
@@ -3216,7 +3256,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     </div>
 
     <div class="menu-item-container" class:menu-open={openMenuId === 'window'}>
-      <button class="menu-trigger" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'window' ? null : 'window'; }}>{m.menuWindow()}</button>
+      <button class="menu-trigger" data-testid="gene-menu-window" onclick={(e) => { e.stopPropagation(); openMenuId = openMenuId === 'window' ? null : 'window'; }}>{m.menuWindow()}</button>
       <div class="menu-dropdown">
         <button class="menu-action-btn {showHistoryPanel ? 'active' : ''}" onclick={() => showHistoryPanel = !showHistoryPanel}>
           {m.menuWinHistory()}
@@ -3410,7 +3450,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
               </div>
               <div class="kv" style="font-size: 10px; margin-top: 4px;">
                 <span class="pix-dim">{m.propLengthLabel()}</span>
-                <span class="pix-num">{dnaSeq.length} bp</span>
+                <span class="pix-num" data-testid="gene-length">{dnaSeq.length} bp</span>
                 <span class="pix-dim">{m.propTopologyLabel()}</span>
                 <span class="pix-num">{linear ? m.propTopologyLinearText() : m.propTopologyCircularText()}</span>
                 <span class="pix-dim">{m.propGcContentLabel()}</span>
@@ -3895,6 +3935,27 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
           })
         })}
         onLoadTemplate={(t) => applySpdVectorTemplate(t)}
+      />
+    </div>
+  {/if}
+
+  {#if showSpdGenePanel}
+    <div use:drag={'.panel-header'} class="floating-panel pix-panel expression-design-panel" style="position: absolute; left: 320px; top: 110px; width: min(640px, calc(100vw - 40px)); max-height: calc(100vh - 140px); overflow: auto; z-index: 67;">
+      <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <strong>{m.spdGeneMenu()}</strong>
+        <button class="pix-btn-reset" type="button" onclick={() => showSpdGenePanel = false} aria-label={m.close()} style="color:var(--pix-red);">[X]</button>
+      </div>
+      <SpdGenePanel
+        getWorkspace={() => ({
+          name: plasmidName || 'unnamed gene',
+          sequence: dnaSeq,
+          circular: !linear,
+          host: codonHost,
+          features: geneFeatures.map(f => ({ name: f.name, start: f.start, end: f.end, type: f.type, forward: f.forward })),
+        })}
+        onLoadGene={applySpdGene}
+        pushLog={pushLog}
+        pushToast={pushToast}
       />
     </div>
   {/if}

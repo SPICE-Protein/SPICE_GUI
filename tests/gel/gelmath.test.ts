@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { detectBandsInLane, detectLanesAuto } from '$lib/tools/gel/detect';
 import {
   autoCropRect,
+  binarizeGray,
   clippedFraction,
   collapseFlatPeaks,
   columnProfile,
@@ -124,6 +126,95 @@ describe('findPeaks', () => {
       { frac: 0.7, value: 1, prominence: 1 },
     ];
     expect(collapseFlatPeaks(profile(values), peaks)).toHaveLength(2);
+  });
+});
+
+/** Synthetic slab with an uneven background and vertical lane bands, used to
+ *  exercise the binarizer on both contrast polarities. */
+function gelPlane(bandValue: number, background: [number, number] = [0.08, 0.12]) {
+  const width = 200;
+  const height = 160;
+  const gray = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      gray[y * width + x] = background[0] + (background[1] - background[0]) * (x / (width - 1));
+    }
+  }
+  const lanes = [0.15, 0.38, 0.62, 0.85];
+  for (const lane of lanes) {
+    const x0 = Math.round((lane - 0.04) * width);
+    const x1 = Math.round((lane + 0.04) * width);
+    for (const band of [0.3, 0.5, 0.7]) {
+      const y0 = Math.round((band - 0.03) * height);
+      const y1 = Math.round((band + 0.03) * height);
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) gray[y * width + x] = bandValue;
+      }
+    }
+  }
+  return { gray, width, height, lanes };
+}
+
+describe('binarization', () => {
+  it('detects bright bands on a dark, uneven background', () => {
+    const { gray, width, height } = gelPlane(0.85);
+    const result = binarizeGray(gray, width, height);
+    expect(result.polarity).toBe(1);
+    let on = 0;
+    for (const v of result.signal) on += v;
+    // Four lanes x three bands x 16px wide x 10px tall, with slack.
+    expect(on).toBeGreaterThan(4 * 3 * 100);
+    expect(on).toBeLessThan(gray.length * 0.2);
+  });
+
+  it('flips polarity for dark bands on a light background', () => {
+    const { gray, width, height } = gelPlane(0.1, [0.88, 0.94]);
+    const result = binarizeGray(gray, width, height);
+    expect(result.polarity).toBe(-1);
+    let on = 0;
+    for (const v of result.signal) on += v;
+    expect(on).toBeGreaterThan(4 * 3 * 100);
+  });
+
+  it('returns an empty mask for an empty gradient', () => {
+    const width = 80;
+    const height = 60;
+    const gray = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) gray[y * width + x] = 0.2 + 0.4 * (x / width);
+    }
+    const result = binarizeGray(gray, width, height);
+    expect(result.signal.every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe('binary lane detection', () => {
+  it('finds lanes with bright bands regardless of background glow', () => {
+    const { gray, width, height, lanes } = gelPlane(0.85);
+    const found = detectLanesAuto(gray, width, height);
+    expect(found.length).toBeGreaterThanOrEqual(4);
+    for (const expected of lanes) {
+      expect(found.some((lane) => Math.abs(lane.x - expected) < 0.04)).toBe(true);
+    }
+  });
+
+  it('finds lanes with dark bands on a light background', () => {
+    const { gray, width, height, lanes } = gelPlane(0.1, [0.88, 0.94]);
+    const found = detectLanesAuto(gray, width, height);
+    expect(found.length).toBeGreaterThanOrEqual(4);
+    for (const expected of lanes) {
+      expect(found.some((lane) => Math.abs(lane.x - expected) < 0.04)).toBe(true);
+    }
+  });
+
+  it('finds the bands inside a detected lane', () => {
+    const { gray, width, height } = gelPlane(0.85);
+    const lane = detectLanesAuto(gray, width, height)[1];
+    const bands = detectBandsInLane(gray, width, height, lane, 'dna');
+    expect(bands.length).toBeGreaterThanOrEqual(3);
+    for (const expected of [0.3, 0.5, 0.7]) {
+      expect(bands.some((band) => Math.abs(band.y - expected) < 0.04)).toBe(true);
+    }
   });
 });
 
