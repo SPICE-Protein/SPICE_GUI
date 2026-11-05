@@ -4,6 +4,7 @@
 mod onnx;
 mod files;
 mod gel;
+mod gelgenie;
 mod spice;
 mod cloning;
 mod spd;
@@ -31,6 +32,10 @@ pub fn run() {
             files::save_file_direct,
             // gel detection: native binarization
             gel::binarize_gel,
+            // GelGenie band segmentation (downloaded ONNX model)
+            gelgenie::gelgenie_status,
+            gelgenie::gelgenie_download_model,
+            gelgenie::gelgenie_segment,
             // SPD (d-api.spicebio.top) HTTP bridge + checkpoint hashing
             spd::spd_request,
             spd::spd_put_bytes,

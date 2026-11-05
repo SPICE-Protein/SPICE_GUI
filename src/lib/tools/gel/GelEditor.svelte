@@ -10,8 +10,10 @@
     Upload, Download, Save, FolderOpen, Plus, Trash2, RotateCcw, RotateCw,
     FlipHorizontal, FlipVertical, Wand2, Crosshair, Eraser, Star, Eye, EyeOff,
     Undo2, Redo2, X, Square, Type, ArrowLeft, ArrowUp,
-    Layers, Clock, FileText, Presentation, ScanLine, Package, SlidersHorizontal, Send
+    Layers, Clock, FileText, Presentation, ScanLine, Package, SlidersHorizontal, Send,
+    Sparkles
   } from 'lucide-svelte';
+  import { segmentWithGelGenie } from '$lib/tools/shared/gelgenie';
   import {
     emptyProject, activeExposure as activeExposureOf, newId, newLaneId,
     type GelProject, type GelLane, type GelExposure,
@@ -809,6 +811,55 @@
     await detectBandsAll(false);
     detectMarkers(false);
     detectStale = false;
+  }
+
+  /** GelGenie U-Net segmentation (native, downloaded model). */
+  async function aiDraft() {
+    if (!processed) return;
+    const proc = processed;
+    busy = m.gelBusyAi();
+    await tick();
+    try {
+      const result = await segmentWithGelGenie(proc.rawGray, proc.width, proc.height);
+      if (!result.lanes.length) {
+        toast(false, m.gelAiEmpty());
+        return;
+      }
+      checkpoint(true);
+      const old = [...project.lanes].sort((a, b) => a.x - b.x);
+      project.lanes = result.lanes.map((lane, index): GelLane => ({
+        id: newLaneId(),
+        x: lane.x,
+        width: lane.width,
+        name: old[index]?.name ?? String(index + 1),
+        isMarker: false,
+        bands: lane.bands.map((bandIndex) => {
+          const band = result.bands[bandIndex];
+          return {
+            y: band.y + band.height / 2,
+            intensity: band.intensity,
+            showSize: true,
+          };
+        }),
+      }));
+      project.fit = null;
+      selectedLaneId = null;
+      selectedBand = null;
+      remapLaneReferences(old);
+      rebuildFigure();
+      schedulePersist();
+      toast(true, m.gelAiFound({ lanes: result.lanes.length, bands: result.bands.length }));
+    } catch (error) {
+      const text = String(error);
+      toast(
+        false,
+        text.includes('not downloaded')
+          ? m.gelAiNoModel()
+          : `${m.gelAiFailed()} ${text}`,
+      );
+    } finally {
+      busy = '';
+    }
   }
 
   async function autoDraft() {
@@ -2408,6 +2459,7 @@
   <div class="gel-toolbar">
     <button class="pix-btn" onclick={() => openImagePicker('replace')}><Upload size={12} /> {m.gelImport()}</button>
     <button class="pix-btn accent" disabled={!hasImage || !!busy} onclick={autoDraft}><Wand2 size={12} /> {busy || m.gelAutoDraft()}</button>
+    <button class="pix-btn" data-testid="gel-ai-detect" disabled={!hasImage || !!busy} onclick={aiDraft} title={m.gelAiDetect()}><Sparkles size={12} /> {m.gelAiDetect()}</button>
     <button class="pix-btn" disabled={!hasImage || !canUndo} onclick={undo} title={m.gelUndo()}><Undo2 size={12} /></button>
     <button class="pix-btn" disabled={!hasImage || !canRedo} onclick={redo} title={m.gelRedo()}><Redo2 size={12} /></button>
     <span class="spacer"></span>

@@ -183,6 +183,13 @@ describe('Bench tools', () => {
       async () => (await detect.getText()).trim() === 'Auto detect',
       { timeout: 120000, timeoutMsg: 'blot auto detect did not finish' },
     );
+
+    // The fixture is a real five-lane blot. Lane labels and the dark scan
+    // frame must not collapse or hide any of them.
+    const lanes = await browser.execute(
+      () => document.querySelectorAll('.lane-list .lane-row').length,
+    );
+    expect(lanes).toBe(5);
   });
 
   it('imports a real colony plate and detects colonies', async () => {

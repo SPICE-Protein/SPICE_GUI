@@ -18,8 +18,9 @@
     Upload, Download, Save, FolderOpen, Undo2, Redo2, Trash2, Plus, RotateCcw,
     RotateCw, Wand2, Crosshair, Crop, Layers, MousePointer2, Eye, EyeOff,
     RefreshCw, FileText, Eraser, ZoomIn, ZoomOut, ScanLine, MousePointerClick,
-    Archive, Images, Send,
+    Archive, Images, Send, Sparkles,
   } from 'lucide-svelte';
+  import { segmentWithGelGenie } from '$lib/tools/shared/gelgenie';
   import {
     decodeImageFile, loadImageElement, renderProcessed, rotateCoordinates,
     cropPixels, type ProcessedImage,
@@ -492,6 +493,54 @@
       }
     }
     return merged.sort((a, b) => a.y - b.y);
+  }
+
+  /** GelGenie U-Net band segmentation (native, downloaded model). */
+  async function aiDetect() {
+    if (!processed || busy) return;
+    const proc = processed;
+    busy = m.blotBusyAi();
+    await tick();
+    try {
+      const result = await segmentWithGelGenie(proc.rawGray, proc.width, proc.height);
+      if (!result.lanes.length) {
+        toast(false, m.blotAiEmpty());
+        return;
+      }
+      commit(() => {
+        project.lanes = result.lanes.map((lane, index): BlotLane => ({
+          id: newId('lane'),
+          x: lane.x,
+          width: lane.width,
+          name: String(index + 1),
+          sample: '',
+          group: defaultGroup(),
+          bands: lane.bands.map((bandIndex): BlotBand => {
+            const band = result.bands[bandIndex];
+            return {
+              id: newId('band'),
+              y: clamp(band.y + band.height / 2, 0.005, 0.995),
+              height: clamp(band.height, 0.005, 0.5),
+              width: clamp(band.width, 0.008, 0.5),
+            };
+          }),
+        }));
+        selectedLaneId = project.lanes[0]?.id ?? null;
+        selectedBandId = null;
+        syncNormalization();
+      });
+      toast(true, m.blotAiFound({ lanes: result.lanes.length, bands: result.bands.length }));
+    } catch (error) {
+      const text = String(error);
+      toast(
+        false,
+        text.includes('not downloaded')
+          ? m.blotAiNoModel()
+          : `${m.blotAiFailed()} ${text}`,
+      );
+    } finally {
+      busy = '';
+    }
   }
 
   async function autoDetect(notify = true) {
@@ -1510,6 +1559,15 @@
       onclick={() => autoDetect(true)}
     >
       <Wand2 size={12} /> {m.blotAutoDetect()}
+    </button>
+    <button
+      class="pix-btn accent"
+      data-testid="blot-ai-detect"
+      disabled={!hasImage || !!busy}
+      onclick={aiDetect}
+      title={m.blotAiDetect()}
+    >
+      <Sparkles size={12} /> {m.blotAiDetect()}
     </button>
     <button
       class="pix-btn"

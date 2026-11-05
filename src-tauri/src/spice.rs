@@ -59,6 +59,8 @@ pub struct AppState {
     pub build_env: Arc<Mutex<Option<EnvParams>>>,
     /// ONNX inference session (fold).
     pub onnx: crate::onnx::OnnxState,
+    /// GelGenie band segmentation session (downloaded on demand).
+    pub gelgenie: crate::gelgenie::GelGenieState,
     /// Set to abort a running stability scan.
     pub cancel: Arc<AtomicBool>,
 }
@@ -73,6 +75,7 @@ impl AppState {
             ca_coords: Arc::new(Mutex::new(None)),
             build_env: Arc::new(Mutex::new(None)),
             onnx: crate::onnx::OnnxState::new(),
+            gelgenie: crate::gelgenie::GelGenieState::new(),
             cancel: Arc::new(AtomicBool::new(false)),
         }
     }

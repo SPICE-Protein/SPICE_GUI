@@ -76,6 +76,38 @@ describe('detectLanes', () => {
   it('returns no lanes for a uniform image', () => {
     expect(detectLanes(plane(50, 40, 1), 50, 40, CROP)).toEqual([]);
   });
+
+  it('ignores a dark scan frame and keeps all five lanes', () => {
+    const width = 500;
+    const height = 300;
+    const gray = plane(width, height, 1);
+    paintColumn(gray, width, 0, 8, height, 0);
+    paintColumn(gray, width, width - 8, width, height, 0);
+    for (const center of [0.12, 0.32, 0.52, 0.7, 0.88]) {
+      const x = Math.round(center * width);
+      paintColumn(gray, width, x - 8, x + 8, height, 0.25);
+    }
+    const lanes = detectLanes(gray, width, height, CROP);
+    expect(lanes.map((lane) => Math.round(lane.x * 100))).toEqual([12, 32, 52, 70, 88]);
+  });
+
+  it('merges the lobes of one smeared band into a single lane', () => {
+    const width = 500;
+    const height = 240;
+    const gray = plane(width, height, 1);
+    for (const [x0, x1] of [
+      [86, 96],
+      [206, 216],
+      [246, 256],
+      [396, 406],
+    ]) {
+      paintColumn(gray, width, x0, x1, height, 0.25);
+    }
+    const lanes = detectLanes(gray, width, height, CROP);
+    expect(lanes).toHaveLength(3);
+    expect(lanes[1].x).toBeGreaterThan(0.4);
+    expect(lanes[1].x).toBeLessThan(0.52);
+  });
 });
 
 describe('detectBands', () => {

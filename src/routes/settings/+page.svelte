@@ -19,6 +19,13 @@
   import { openUrl } from '@tauri-apps/plugin-opener';
   import type { SpdHealth, SpdUserMe } from '$lib/spd/types';
   import { identityStore } from '$lib/identity/store.svelte';
+  import {
+    GELGENIE_MODEL_URL,
+    downloadGelGenie,
+    gelgenieStatus,
+    type GelGenieStatus,
+    type GelGenieProgress,
+  } from '$lib/tools/shared/gelgenie';
 
   const ui = { style: 'pixel', theme: 'midnight' } as const;
 
@@ -109,6 +116,46 @@
   let modelCands = $state<string[]>([]);
   let modelStatus = $state<ModelStatus | null>(null);
   let statusBusy = $state(false);
+
+  // GelGenie band-segmentation model (downloaded on demand, like the fold model).
+  let ggStatus = $state<GelGenieStatus | null>(null);
+  let ggUrl = $state(
+    (typeof localStorage !== 'undefined' && localStorage.getItem('spice_gelgenie_url')) ||
+      GELGENIE_MODEL_URL,
+  );
+  let ggProxy = $state(
+    (typeof localStorage !== 'undefined' && localStorage.getItem('spice_gelgenie_proxy')) || '',
+  );
+  let ggProgress = $state<GelGenieProgress | null>(null);
+  let ggBusy = $state(false);
+  let ggMsg = $state<string | null>(null);
+  let ggOk = $state(true);
+
+  async function checkGelGenie() {
+    ggStatus = await gelgenieStatus();
+  }
+
+  async function doDownloadGelGenie() {
+    ggBusy = true;
+    ggMsg = null;
+    ggProgress = null;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('spice_gelgenie_url', ggUrl);
+      localStorage.setItem('spice_gelgenie_proxy', ggProxy);
+    }
+    const result = await downloadGelGenie(ggUrl, ggProxy, (p) => (ggProgress = p));
+    ggBusy = false;
+    ggOk = result.ok;
+    ggMsg = result.ok
+      ? m.gelgenieModelReady()
+      : result.error ?? m.gelgenieModelMissing();
+    if (result.ok) {
+      pushToast('success', m.gelgenieModelReady(), result.modelPath ?? '');
+    } else {
+      pushToast('error', m.gelgenieModelMissing(), result.error ?? '');
+    }
+    await checkGelGenie();
+  }
 
   // ---------------- PUBLIC INTEGRATIONS ----------------
   let spdBaseUrl = $state(defaultSpdBaseUrl());
@@ -201,6 +248,7 @@
     statusBusy = true;
     modelStatus = (await backend.modelStatus()).data ?? null;
     modelCands = await backend.modelCandidates();
+    ggStatus = await gelgenieStatus();
     statusBusy = false;
     shortcuts = loadKeymap();
     // A saved ORCID re-verifies automatically so the ELN author field is
@@ -564,6 +612,42 @@
 
               {#if dlMsg}
                 <div class="pix-num {dlOk ? 'good' : 'bad'}" style="font-size: 9px; word-break: break-all;">{dlMsg}</div>
+              {/if}
+
+              <Divider {...ui} />
+              <!-- GelGenie band segmentation model (gel / western blot) -->
+              <div class="pix-title" style="font-size: 11px; font-weight: bold; color: var(--pix-accent-2);">{m.gelgenieModelTitle()}</div>
+              <span class="pix-dim" style="font-size: 9px; line-height: 1.4;">{m.gelgenieModelDesc()}</span>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                <span class="pix-dim" data-testid="gelgenie-status">{ggStatus?.ok ? m.gelgenieModelReady() : m.gelgenieModelMissing()}</span>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <span class="pix-led {ggStatus?.ok ? 'ok' : 'bad'}" style="width:8px;height:8px"></span>
+                  <span>{ggStatus?.ok ? m.statusLoaded() : m.statusOffline()}</span>
+                </div>
+              </div>
+              {#if ggStatus?.ok}
+                <div class="mono pix-dim" style="font-size: 8px; word-break: break-all; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.05); line-height: 1.4;">
+                  {m.modelPathLabel()} {ggStatus.modelPath}<br/>
+                  {m.modelSizeLabel()} {fmtBytes(ggStatus.sizeBytes)}
+                </div>
+              {/if}
+              <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
+                <span class="pix-dim">{m.modelUrlLabel()}</span>
+                <input class="pix-input" data-testid="gelgenie-url" type="text" bind:value={ggUrl} placeholder={GELGENIE_MODEL_URL} style="padding: 4px 6px;" />
+                <span class="pix-dim">{m.gelgenieProxyLabel()}</span>
+                <input class="pix-input" data-testid="gelgenie-proxy" type="text" bind:value={ggProxy} placeholder="http://127.0.0.1:8889" style="padding: 4px 6px;" />
+                <button class="pix-btn-reset" data-testid="gelgenie-download" disabled={ggBusy} onclick={doDownloadGelGenie} style="padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--pix-border); align-self: flex-start;">
+                  {ggBusy ? m.downloading() : m.gelgenieDownload()}
+                </button>
+              </div>
+              {#if ggProgress}
+                <ProgressBar {...ui} value={ggProgress.total ? (ggProgress.done / ggProgress.total) * 100 : -1} size="md" />
+                <div class="pix-dim" style="font-size: 8px; text-align: center;">
+                  {m.downloadCompleted()} {fmtBytes(ggProgress.done)} / {ggProgress.total ? fmtBytes(ggProgress.total) : '—'}
+                </div>
+              {/if}
+              {#if ggMsg}
+                <div class="pix-num {ggOk ? 'good' : 'bad'}" style="font-size: 9px; word-break: break-all;">{ggMsg}</div>
               {/if}
 
               <Divider {...ui} />

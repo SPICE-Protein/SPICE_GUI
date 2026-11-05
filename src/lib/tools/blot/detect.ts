@@ -144,6 +144,28 @@ export interface DetectedLane {
   width: number;
 }
 
+/** Merge peaks that sit inside one lane. Smeared or overloaded bands produce
+ *  two lobes, and both survive the profile peak picker; lanes are separated by
+ *  at least ~half the typical spacing, so anything closer is one lane. */
+function mergeClosePeaks(peaks: Peak[]): Peak[] {
+  if (peaks.length < 3) return peaks;
+  const gaps: number[] = [];
+  for (let i = 1; i < peaks.length; i++) gaps.push(peaks[i].frac - peaks[i - 1].frac);
+  gaps.sort((a, b) => a - b);
+  const medianGap = gaps[Math.floor(gaps.length / 2)] ?? 0;
+  if (medianGap <= 0) return peaks;
+  const merged: Peak[] = [];
+  for (const peak of peaks) {
+    const last = merged[merged.length - 1];
+    if (last && peak.frac - last.frac < medianGap * 0.55) {
+      if (peak.prominence > last.prominence) merged[merged.length - 1] = peak;
+    } else {
+      merged.push(peak);
+    }
+  }
+  return merged;
+}
+
 /** Column-profile lane finding inside the visible crop. */
 export function detectLanes(
   gray: Float32Array,
@@ -154,15 +176,30 @@ export function detectLanes(
   const y0 = crop.top * height;
   const y1 = (1 - crop.bottom) * height;
   const raw = columnSignal(gray, width, height, y0, y1);
-  const profile = openBaseline(raw, Math.max(9, Math.round(width * 0.2)));
-  const peaks = findPeaks(profile, {
-    prominenceStd: 0.5,
-    minProminence: 0.006,
-    minGap: Math.max(6, Math.round(width * 0.01)),
-    smooth: 3,
-  }).filter((p) => p.frac > 0.02 && p.frac < 0.98);
+
+  // Scanned blots often carry a dark frame or shadow on the outer columns.
+  // Those peaks are huge enough to raise the mean/std threshold and hide the
+  // real lanes, so keep the edges out of both the baseline and the stats.
+  const edge = Math.max(1, Math.round(width * 0.02));
+  const usable = width > edge * 4 ? raw.slice(edge, width - edge) : raw;
+  const profile = openBaseline(usable, Math.max(9, Math.round(width * 0.1)));
+  const peaks = mergeClosePeaks(
+    findPeaks(profile, {
+      // Smooth over a fraction of the image width so texture inside a band
+      // collapses into one lane peak instead of several sub-peaks.
+      prominenceStd: 0.8,
+      minProminence: 0.01,
+      minGap: Math.max(6, Math.round(width * 0.03)),
+      smooth: Math.max(3, Math.round(width * 0.03)),
+    })
+      .map((peak) => ({
+        ...peak,
+        frac: (peak.frac * usable.length + edge) / width,
+      }))
+      .filter((peak) => peak.frac > 0.02 && peak.frac < 0.98),
+  );
   if (peaks.length < 1) return [];
-  const xs = peaks.map((p) => p.frac);
+  const xs = peaks.map((peak) => peak.frac);
   const gaps: number[] = [];
   for (let i = 1; i < xs.length; i++) gaps.push(xs[i] - xs[i - 1]);
   gaps.sort((a, b) => a - b);
