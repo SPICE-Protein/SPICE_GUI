@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "test": "svelte-kit sync && vitest run",
+    "test": "pnpm i18n && svelte-kit sync && vitest run",
     "e2e:build": "node scripts/e2e-build.mjs",
     "e2e": "wdio run ./e2e/wdio.conf.js",
     "e2e:ci": "pnpm e2e:build && pnpm e2e",
