@@ -1,0 +1,12 @@
+# Local build speed for the native Tauri app.
+#
+# The E2E binary rebuilds a large dependency graph (Tauri, ONNX runtime, the
+# SPICE engine). Debug info dominates artifact size and link time here, so this
+# project disables it for dev/test builds. Panic messages still include
+# file/line; backtraces just lose source snippets and local variables.
+#
+# The user-level ~/.cargo/config.toml sets `-C debuginfo=1` globally. Rustflags
+# are last-wins on the rustc command line, so this project-local file overrides
+# it. Use `RUSTFLAGS="-C debuginfo=1" cargo build` when full backtraces matter.
+[build]
+rustflags = ["-C", "debuginfo=0"]

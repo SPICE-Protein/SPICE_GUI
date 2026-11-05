@@ -1,6 +1,6 @@
 {
   "name": "SPICE GUI",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "",
   "type": "module",
   "scripts": {
@@ -17,7 +17,8 @@
     "tauri": "tauri",
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage cookie globalVariable baseLocale && node scripts/clean-inlang-gitignore.mjs",
     "predev": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage cookie globalVariable baseLocale && node scripts/clean-inlang-gitignore.mjs && node scripts/patch-android-landscape.mjs",
-    "prebuild": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage cookie globalVariable baseLocale && node scripts/clean-inlang-gitignore.mjs && node scripts/patch-android-landscape.mjs"
+    "prebuild": "node scripts/sync-logo.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage cookie globalVariable baseLocale && node scripts/clean-inlang-gitignore.mjs && node scripts/patch-android-landscape.mjs",
+    "sync:bioart": "node scripts/sync-bioart.mjs"
   },
   "license": "Apache-2.0",
   "dependencies": {
@@ -28,6 +29,7 @@
     "@tauri-apps/plugin-notification": "2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "lucide-svelte": "^1.0.1",
+    "mermaid": "^12.3.0",
     "molstar": "^5.11.0",
     "pptxgenjs": "^4.0.1",
     "svelte-multistyle-ui": "0.0.14-alpha",
@@ -47,6 +49,7 @@
     "@wdio/spec-reporter": "9.32.0",
     "@wdio/tauri-plugin": "1.5.1",
     "@wdio/tauri-service": "1.5.1",
+    "jsdom": "^30.1.3",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "~5.6.2",

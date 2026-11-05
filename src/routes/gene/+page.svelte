@@ -317,8 +317,12 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
   onMount(() => {
     aiState.onApplyDnaSequence = (newSeq: string) => {
+      // AI-applied sequences are untrusted edits: snapshot the current state
+      // first so the change is undoable from the history panel.
+      pushHistory('AI: replace sequence', 'edit');
       dnaSeq = newSeq;
     };
+    aiState.onUndoAiChange = () => undo();
     
     // Load primer inventory from localStorage
     if (typeof window !== 'undefined') {
@@ -334,6 +338,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
     return () => {
       aiState.onApplyDnaSequence = null;
+      aiState.onUndoAiChange = null;
     };
   });
   function getInitialSelectedEnzymes(): string[] {

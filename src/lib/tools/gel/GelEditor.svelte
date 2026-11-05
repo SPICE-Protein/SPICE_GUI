@@ -10,7 +10,7 @@
     Upload, Download, Save, FolderOpen, Plus, Trash2, RotateCcw, RotateCw,
     FlipHorizontal, FlipVertical, Wand2, Crosshair, Eraser, Star, Eye, EyeOff,
     Undo2, Redo2, X, Square, Type, ArrowLeft, ArrowUp,
-    Layers, Clock, FileText, Presentation, ScanLine, Package, SlidersHorizontal
+    Layers, Clock, FileText, Presentation, ScanLine, Package, SlidersHorizontal, Send
   } from 'lucide-svelte';
   import {
     emptyProject, activeExposure as activeExposureOf, newId, newLaneId,
@@ -51,6 +51,7 @@
   import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
   import { ensureProjectLoaded, takeToolHandoff, finishToolCapture } from '$lib/tools/shared/projectBridge';
   import { canvasPreview } from '$lib/tools/shared/preview';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
   import { saveReproBundle } from '$lib/repro/bundle';
   import { sanitizeGelProject, gelSummary, gelProjectPreview, gelParameters, gelCsv, gelMethods } from './projectDoc';
   import { g } from './messages';
@@ -2046,6 +2047,26 @@
     }
   }
 
+  async function sendToFigureNow() {
+    if (!processed) {
+      toast(false, m.gelNoImage());
+      return;
+    }
+    try {
+      const fig = layout ?? buildFigure(project, processed.canvas);
+      const canvas = rasterizeFigure(fig, processed.canvas, Math.min(exportDpi, 300));
+      const ok = await sendImageToFigure({
+        dataUrl: canvas.toDataURL('image/png'),
+        name: `${projectBase()}_figure`,
+        width: canvas.width,
+        height: canvas.height,
+      });
+      if (!ok) toast(false, g.sendToFigureFailed());
+    } catch (err) {
+      toast(false, err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function exportTiffNow() {
     if (!processed) return;
     try {
@@ -2393,6 +2414,7 @@
     <button class="pix-btn" onclick={() => projectInput?.click()}><FolderOpen size={12} /> {m.gelOpenProject()}</button>
     <button class="pix-btn" disabled={!hasImage} onclick={saveProject}><Save size={12} /> {m.gelSaveProject()}</button>
     <button class="pix-btn ok" disabled={!hasImage} onclick={exportPngNow}><Download size={12} /> {m.gelExport()}</button>
+    <button class="pix-btn" disabled={!hasImage || !!busy} onclick={sendToFigureNow} title={g.sendToFigure()} aria-label={g.sendToFigure()} data-testid="send-to-figure"><Send size={12} /></button>
     <button class="pix-btn danger" disabled={!hasImage} onclick={resetAll}><Eraser size={12} /> {m.gelReset()}</button>
   </div>
 

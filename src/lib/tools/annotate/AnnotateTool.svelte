@@ -15,6 +15,7 @@
     takeToolHandoff,
   } from '$lib/tools/shared/projectBridge';
   import { canvasPreview } from '$lib/tools/shared/preview';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
   import { saveReproBundle, type ReproFile } from '$lib/repro/bundle';
   import {
     annotateDocName,
@@ -119,6 +120,7 @@
     RotateCcw,
     Ruler,
     Save,
+    Send,
     Settings2,
     Square,
     Trash2,
@@ -892,6 +894,39 @@
       await saveBytes(`${baseName()}_${dpi}dpi.png`, bytes, m.annotExportDone());
     } catch (error) {
       pushToast('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      busy = 'idle';
+    }
+  }
+
+  async function sendToFigureNow() {
+    if (!project.panels.length || busy !== 'idle') {
+      if (!project.panels.length) pushToast('warn', m.annotNoExport());
+      return;
+    }
+    busy = 'png';
+    try {
+      const current = snapshot();
+      const figure = buildFigureGeometry(current);
+      const boxes = buildAnnotationMeta(current, figure);
+      const arts = await buildExportArts(current, false);
+      const resolver = (panel: Panel) => arts.get(panel.id) ?? null;
+      const canvas = renderFigurePng(
+        current,
+        figure,
+        resolver,
+        boxes,
+        Math.min(current.layout.exportDpi, 300),
+      );
+      const ok = await sendImageToFigure({
+        dataUrl: canvas.toDataURL('image/png'),
+        name: `${baseName()} figure`,
+        width: canvas.width,
+        height: canvas.height,
+      });
+      if (!ok) pushToast('error', am.sendToFigureFailed());
+    } catch (error) {
+      pushToast('error', error instanceof Error ? error.message : m.annotExportFailed());
     } finally {
       busy = 'idle';
     }
@@ -1855,6 +1890,16 @@
       </button>
       <button class="pix-btn ok" disabled={busy !== 'idle' || !project.panels.length} onclick={exportSvg}>
         <Download size={13} /> SVG
+      </button>
+      <button
+        class="pix-btn icon-only"
+        disabled={busy !== 'idle' || !project.panels.length}
+        onclick={sendToFigureNow}
+        title={am.sendToFigure()}
+        aria-label={am.sendToFigure()}
+        data-testid="send-to-figure"
+      >
+        <Send size={13} />
       </button>
       <button class="pix-btn" disabled={busy !== 'idle'} onclick={exportProjectJson}>
         <FileJson size={13} /> JSON

@@ -1,0 +1,62 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 500 500">
+  <metadata><title>Arrow</title><description>Curved arrow with shadow</description><license>Public Domain</license><creator>Ryan Kissinger</creator><creationDate>2024-09-03T15:13:00-06:00</creationDate><credit>Courtesy of NIAID</credit><illustrationSoftwares>[{'name': 'Adobe Illustrator', 'version': '28.6'}]</illustrationSoftwares><caption>Arrow - BlackWhite</caption><imageColor>BlackWhite</imageColor></metadata><defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        filter: url(#drop-shadow-1);
+        mix-blend-mode: multiply;
+        stroke: url(#linear-gradient-2);
+        stroke-miterlimit: 10;
+        stroke-width: 213.1px;
+      }
+
+      .cls-2 {
+        mask: url(#mask);
+      }
+
+      .cls-3 {
+        isolation: isolate;
+      }
+
+      .cls-4 {
+        filter: url(#luminosity-invert);
+      }
+
+      .cls-5 {
+        fill: url(#linear-gradient);
+      }
+    </style>
+    <filter id="luminosity-invert" x="5.26" y="-29.06" width="549.85" height="542.16" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feColorMatrix result="cm" values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 0 0 0 1 0" />
+    </filter>
+    <linearGradient id="linear-gradient" x1="408.03" y1="488.43" x2="187.25" y2="106.03" gradientUnits="userSpaceOnUse">
+      <stop offset=".4" stop-color="#000" />
+      <stop offset="1" stop-color="#fff" />
+    </linearGradient>
+    <mask id="mask" x="5.26" y="-29.06" width="549.85" height="542.16" maskUnits="userSpaceOnUse">
+      <g class="cls-4">
+        <path class="cls-5" d="M65.63,235.06L280.67,52.1l274.44,351.41s-257.81,86.92-262.56,91.88c-4.75,4.96-226.92-260.33-226.92-260.33Z" />
+      </g>
+    </mask>
+    <linearGradient id="linear-gradient-2" x1="363.96" y1="460.09" x2="150.49" y2="90.36" gradientUnits="userSpaceOnUse">
+      <stop offset=".4" stop-color="#fff" />
+      <stop offset="1" stop-color="#fff" />
+    </linearGradient>
+    <filter id="drop-shadow-1" x="5.26" y="-29.06" width="433.2" height="542.16" filterUnits="userSpaceOnUse">
+      <feOffset dx="0" dy="0" />
+      <feGaussianBlur result="blur" stdDeviation="26.01" />
+      <feFlood flood-color="#000" flood-opacity=".75" />
+      <feComposite in2="blur" operator="in" />
+      <feComposite in="SourceGraphic" />
+    </filter>
+  </defs>
+  
+  <g class="cls-3">
+    <g id="Layer_1">
+      <g class="cls-2">
+        <path class="cls-1" d="M152.75,130.25s24.6,20.97,55.69,57.59c10.49,12.36,21.72,26.51,32.99,42.23,37.94,52.94,76.36,123.78,88.67,204.75" />
+      </g>
+    </g>
+  </g>
+  </svg>

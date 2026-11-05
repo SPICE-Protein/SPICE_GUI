@@ -177,7 +177,9 @@
     "plateSamplesInvalid": "所选文件不是有效的 SPICE_SAMPLES 样本表。",
     "plateExportQpcr": "导出 qPCR 孔板图",
     "plateNoSamplesExport": "导出样本表前请至少添加一个样本。",
-    "plateQpcrHint": "qPCR 孔板图保留 well,sample,group,type,replicate 表头，并省略空孔和保留孔。"
+    "plateQpcrHint": "qPCR 孔板图保留 well,sample,group,type,replicate 表头，并省略空孔和保留孔。",
+    "sendToFigure": "发送到 Figure Studio",
+    "sendToFigureFailed": "无法发送到 Figure Studio"
   },
   "en": {
     "toolsPlateTitle": "Plate layout designer",
@@ -357,7 +359,9 @@
     "plateSamplesInvalid": "The selected file is not a valid SPICE_SAMPLES sheet.",
     "plateExportQpcr": "Export plate map for qPCR",
     "plateNoSamplesExport": "Add at least one sample before exporting a sample sheet.",
-    "plateQpcrHint": "The qPCR plate map keeps the well,sample,group,type,replicate header and omits empty or reserved wells."
+    "plateQpcrHint": "The qPCR plate map keeps the well,sample,group,type,replicate header and omits empty or reserved wells.",
+    "sendToFigure": "Send to Figure Studio",
+    "sendToFigureFailed": "Could not send to Figure Studio"
   },
   "ja": {
     "toolsPlateTitle": "プレートレイアウト設計ツール",
@@ -537,7 +541,9 @@
     "plateSamplesInvalid": "選択したファイルは有効な SPICE_SAMPLES サンプルシートではありません。",
     "plateExportQpcr": "qPCR 用プレートマップをエクスポート",
     "plateNoSamplesExport": "サンプルシートをエクスポートする前にサンプルを追加してください。",
-    "plateQpcrHint": "qPCR プレートマップは well,sample,group,type,replicate ヘッダーを保持し、空ウェルと予約ウェルを省略します。"
+    "plateQpcrHint": "qPCR プレートマップは well,sample,group,type,replicate ヘッダーを保持し、空ウェルと予約ウェルを省略します。",
+    "sendToFigure": "Figure Studio に送信",
+    "sendToFigureFailed": "Figure Studio に送信できませんでした"
   },
   "ko": {
     "toolsPlateTitle": "플레이트 레이아웃 설계 도구",
@@ -717,7 +723,9 @@
     "plateSamplesInvalid": "선택한 파일은 올바른 SPICE_SAMPLES 샘플 시트가 아닙니다.",
     "plateExportQpcr": "qPCR용 플레이트 맵 내보내기",
     "plateNoSamplesExport": "샘플 시트를 내보내기 전에 샘플을 하나 이상 추가하세요.",
-    "plateQpcrHint": "qPCR 플레이트 맵은 well,sample,group,type,replicate 헤더를 유지하고 빈 웰과 예약 웰은 제외합니다."
+    "plateQpcrHint": "qPCR 플레이트 맵은 well,sample,group,type,replicate 헤더를 유지하고 빈 웰과 예약 웰은 제외합니다.",
+    "sendToFigure": "Figure Studio로 보내기",
+    "sendToFigureFailed": "Figure Studio로 보낼 수 없습니다"
   },
   "de": {
     "toolsPlateTitle": "Plattenlayout-Designer",
@@ -897,7 +905,9 @@
     "plateSamplesInvalid": "Die ausgewaehlte Datei ist kein gueltiges SPICE_SAMPLES-Probenblatt.",
     "plateExportQpcr": "Plattenkarte fuer qPCR exportieren",
     "plateNoSamplesExport": "Fuege mindestens eine Probe hinzu, bevor du ein Probenblatt exportierst.",
-    "plateQpcrHint": "Die qPCR-Plattenkarte behaelt die Kopfzeile well,sample,group,type,replicate und laesst leere oder reservierte Wells aus."
+    "plateQpcrHint": "Die qPCR-Plattenkarte behaelt die Kopfzeile well,sample,group,type,replicate und laesst leere oder reservierte Wells aus.",
+    "sendToFigure": "An Figure Studio senden",
+    "sendToFigureFailed": "Konnte nicht an Figure Studio senden"
   },
   "nl": {
     "toolsPlateTitle": "Platenlayout-ontwerper",
@@ -1077,7 +1087,9 @@
     "plateSamplesInvalid": "Het geselecteerde bestand is geen geldig SPICE_SAMPLES-monsterblad.",
     "plateExportQpcr": "Plaatkaart voor qPCR exporteren",
     "plateNoSamplesExport": "Voeg ten minste een monster toe voordat je een monsterblad exporteert.",
-    "plateQpcrHint": "De qPCR-plaatkaart behoudt de kop well,sample,group,type,replicate en laat lege of gereserveerde wells weg."
+    "plateQpcrHint": "De qPCR-plaatkaart behoudt de kop well,sample,group,type,replicate en laat lege of gereserveerde wells weg.",
+    "sendToFigure": "Naar Figure Studio sturen",
+    "sendToFigureFailed": "Konnte niet naar Figure Studio sturen"
   },
   "sv": {
     "toolsPlateTitle": "Designverktyg för plattlayout",
@@ -1257,6 +1269,8 @@
     "plateSamplesInvalid": "Den valda filen ar inte ett giltigt SPICE_SAMPLES-provark.",
     "plateExportQpcr": "Exportera plattkarta for qPCR",
     "plateNoSamplesExport": "Lagg till minst ett prov innan du exporterar ett provark.",
-    "plateQpcrHint": "qPCR-plattkartan behaller rubriken well,sample,group,type,replicate och utelamnar tomma eller reserverade brunnar."
+    "plateQpcrHint": "qPCR-plattkartan behaller rubriken well,sample,group,type,replicate och utelamnar tomma eller reserverade brunnar.",
+    "sendToFigure": "Skicka till Figure Studio",
+    "sendToFigureFailed": "Det gick inte att skicka till Figure Studio"
   }
 }

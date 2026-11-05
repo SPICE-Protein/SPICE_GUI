@@ -5,7 +5,7 @@
 // container.ts). This in-memory JSON shape is what the container encodes,
 // what localStorage snapshots hold, and what legacy gen-1 files contain.
 
-export const TOOL_DOC_KINDS = ['gel', 'blot', 'qpcr', 'plate', 'colony', 'annotate', 'tree'] as const;
+export const TOOL_DOC_KINDS = ['gel', 'blot', 'qpcr', 'plate', 'colony', 'annotate', 'tree', 'figure'] as const;
 export type ToolDocKind = (typeof TOOL_DOC_KINDS)[number];
 
 export type ProjectDocKind = 'gene' | 'protein' | ToolDocKind;
@@ -18,7 +18,8 @@ export const TOOL_DOC_EXTENSIONS: Record<ToolDocKind, string> = {
   plate: 'plate.json',
   colony: 'colony.json',
   annotate: 'annotate.json',
-  tree: 'tree.json'
+  tree: 'tree.json',
+  figure: 'figure.json'
 };
 
 export function isToolDocKind(kind: unknown): kind is ToolDocKind {
@@ -149,6 +150,8 @@ function isToolPayload(kind: ToolDocKind, payload: unknown): boolean {
       return p.version === 1 && Array.isArray(p.panels) && Array.isArray(p.annotations);
     case 'tree':
       return p.format === 'spice-tree' && typeof p.originalNewick === 'string';
+    case 'figure':
+      return p.format === 'SPICE_FIGURE' && p.version === 1 && Array.isArray(p.nodes);
   }
 }
 

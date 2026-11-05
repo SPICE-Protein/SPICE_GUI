@@ -35,14 +35,11 @@
     applyTheme();
   });
 
-  // The Tauri window mirrors document.title, so the native title bar stays
-  // localized when the language toggles. Brand prefix "SPICE" never translates.
-  $effect(() => {
-    const _loc = currentLocale.value;
-    if (typeof document !== 'undefined') {
-      document.title = `SPICE · ${m.windowTagline()}`;
-    }
-  });
+  // The Tauri window mirrors document.title. Keep both the native title bar
+  // and the HTML title exactly "SPICE GUI" instead of localising a tagline.
+  if (typeof document !== 'undefined') {
+    document.title = 'SPICE GUI';
+  }
 
   onMount(() => {
     // E2E-only frontend bridge for @wdio/tauri-service. The build script sets
@@ -156,9 +153,10 @@
 
     <div class="top-status">
       <!-- AI Co-Pilot Toggle -->
-      <button 
-        class="pix-btn-reset ai-toggle-btn {aiState.isOpen ? 'ai-active' : ''}" 
-        onclick={() => aiState.toggle()} 
+      <button
+        class="pix-btn-reset ai-toggle-btn {aiState.isOpen ? 'ai-active' : ''}"
+        data-testid="ai-toggle"
+        onclick={() => aiState.toggle()}
         title={m.aiCopilotTooltip()}
         style="cursor: pointer; padding: 4px 10px; border-color: {aiState.isOpen ? 'var(--pix-accent)' : 'var(--pix-border)'}; background: {aiState.isOpen ? 'var(--pix-bg-2)' : 'var(--pix-bg-3)'}; color: {aiState.isOpen ? 'var(--pix-accent)' : 'var(--pix-fg-dim)'}; display: inline-flex; align-items: center; gap: 4px; font-weight: bold; border-width: 2px; border-style: solid; box-shadow: {aiState.isOpen ? '0 0 6px var(--pix-accent)' : 'none'};"
       >

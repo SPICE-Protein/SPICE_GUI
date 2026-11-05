@@ -7,7 +7,7 @@
     TreePine, Search, ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut,
     RefreshCw, Upload, Download, Image as ImageIcon, FileText, Braces,
     RotateCw, ListTree, Palette, Trash2, SlidersHorizontal, FileUp,
-    GitCompare, Package
+    GitCompare, Package, Send
   } from 'lucide-svelte';
   import { m } from './i18n';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
@@ -20,6 +20,8 @@
     takeToolHandoff,
   } from '$lib/tools/shared/projectBridge';
   import { svgPreview } from '$lib/tools/shared/preview';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
+  import { bytesToDataUrl } from '$lib/tools/shared/canvas';
   import { saveReproBundle, type ReproFile } from '$lib/repro/bundle';
   import { compareTrees, type TreeComparison } from './compare';
   import { emptySupportSummary, supportSummary } from './support';
@@ -990,6 +992,29 @@
     }
   }
 
+  async function sendToFigureNow(): Promise<void> {
+    const currentLayout = layout;
+    if (!currentLayout || !exportMarkup) return;
+    try {
+      const png = await svgToPng(
+        exportMarkup,
+        currentLayout.width,
+        currentLayout.height,
+        192,
+        THEME_COLORS[settings.theme].background
+      );
+      const ok = await sendImageToFigure({
+        dataUrl: await bytesToDataUrl(png.bytes, 'image/png'),
+        name: `${fileBase()} tree`,
+        width: png.width,
+        height: png.height
+      });
+      if (!ok) pushToast('error', m.sendToFigureFailed());
+    } catch (error) {
+      pushToast('error', m.treeExportFailToast(), String((error as Error)?.message ?? error));
+    }
+  }
+
   async function exportNewick(original: boolean): Promise<void> {
     if (!doc) return;
     const text = original ? doc.originalNewick : toNewick(doc.root, { collapsed });
@@ -1310,6 +1335,16 @@
           </button>
           <button class="pix-btn tiny" onclick={() => void exportPng(600)} disabled={!doc}>
             <ImageIcon size={10} /> {m.treeExportPng600()}
+          </button>
+          <button
+            class="pix-btn tiny"
+            onclick={() => void sendToFigureNow()}
+            disabled={!doc || !layout}
+            title={m.sendToFigure()}
+            aria-label={m.sendToFigure()}
+            data-testid="send-to-figure"
+          >
+            <Send size={10} /> {m.sendToFigure()}
           </button>
           <button class="pix-btn tiny" onclick={() => void exportNewick(false)} disabled={!doc}>
             <FileText size={10} /> {m.treeExportNewick()}

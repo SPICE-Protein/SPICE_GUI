@@ -117,6 +117,36 @@ describe('Bench tools', () => {
     expect(await dna.getAttribute('class')).toContain('active');
   });
 
+  it('sends a rendered gel panel to Figure Studio', async () => {
+    await openTool('gel');
+    await uploadTo('gel-image-input', './e2e/fixtures/agarose_gel.jpg');
+
+    const draft = await $('//button[normalize-space(.)="Auto draft"]');
+    await browser.waitUntil(async () => await draft.isEnabled(), {
+      timeout: 30000,
+      timeoutMsg: 'gel image did not finish importing',
+    });
+    await draft.click();
+    await browser.waitUntil(
+      async () => (await draft.getText()).trim() === 'Auto draft',
+      { timeout: 120000, timeoutMsg: 'gel auto draft did not finish' },
+    );
+
+    const send = await expectTestId('send-to-figure');
+    await browser.waitUntil(async () => await send.isEnabled(), {
+      timeout: 30000,
+      timeoutMsg: 'send-to-figure stayed disabled after the gel figure rendered',
+    });
+    await send.click();
+
+    await expectTestId('figure-tool');
+    await expectTestId('figure-canvas');
+    await browser.waitUntil(
+      async () => (await $$('[data-testid="figure-node"][data-node-type="image"]')).length === 1,
+      { timeout: 20000, timeoutMsg: 'gel panel was not inserted into Figure Studio' },
+    );
+  });
+
   it('runs gel binarization on the native backend', async () => {
     await openTool('gel');
     const result = await browser.execute(async () => {
@@ -165,15 +195,30 @@ describe('Bench tools', () => {
       timeoutMsg: 'colony image did not finish importing',
     });
     await detect.click();
-    await browser.waitUntil(
-      async () => {
-        const count = await $('.count-big');
-        if (!(await count.isExisting())) return false;
-        const value = Number((await count.getText()).trim());
-        return Number.isFinite(value) && value > 0;
-      },
-      { timeout: 120000, timeoutMsg: 'colony detection produced no colonies' },
-    );
+    try {
+      await browser.waitUntil(
+        async () => {
+          const count = await $('.count-big');
+          if (!(await count.isExisting())) return false;
+          const value = Number((await count.getText()).trim());
+          return Number.isFinite(value) && value > 0;
+        },
+        { timeout: 120000, timeoutMsg: 'colony detection produced no colonies' },
+      );
+    } catch (error) {
+      const state = await browser.execute(() => ({
+        count: document.querySelector('.count-big')?.textContent ?? null,
+        toasts: Array.from(document.querySelectorAll('.toast-title, .toast-body')).map(
+          (node) => node.textContent,
+        ),
+        detectDisabled: Array.from(document.querySelectorAll('button')).some(
+          (button) => button.textContent?.trim() === 'Detect colonies' && button.disabled,
+        ),
+      }));
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}: ${JSON.stringify(state)}`,
+      );
+    }
   });
 
   it('toggles the gel display mode', async () => {

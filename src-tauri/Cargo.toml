@@ -72,3 +72,15 @@ bio_files = { git = "https://github.com/SPICE-Protein/bio_files.git" }
 # used by @wdio/tauri-service. Never enable this in release bundles.
 webdriver = ["dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 
+
+# Native builds are slow mainly because of debug information. The Tauri E2E
+# binary links the whole engine + inference stack, so dev/test use no debug
+# info and no dSYM split. This also keeps the cache (~/.cache/cargo-target)
+# much smaller. Release builds are unaffected.
+[profile.dev]
+debug = 0
+split-debuginfo = "off"
+
+[profile.test]
+debug = 0
+split-debuginfo = "off"

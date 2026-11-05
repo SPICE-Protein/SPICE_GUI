@@ -6,6 +6,7 @@
   import type { MessageParams } from './messages';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { backend } from '$lib/backend/api';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
   import {
     AlertTriangle,
     Check,
@@ -24,6 +25,7 @@
     Plus,
     RefreshCw,
     Save,
+    Send,
     Sparkles,
     Trash2,
     Upload,
@@ -969,6 +971,27 @@
     }
   }
 
+  async function sendToFigureNow() {
+    if (!hasExportable || exporting) return;
+    exporting = m.plateExportBusy();
+    try {
+      const figure = buildSvg();
+      const canvas = await renderSvgToCanvas(figure.svg, figure.width, figure.height, 2);
+      const ok = await sendImageToFigure({
+        dataUrl: canvas.toDataURL('image/png'),
+        name: `${displayTitle()} plate`,
+        width: canvas.width,
+        height: canvas.height,
+      });
+      if (!ok) pushToast('error', m.plateTitle(), m.sendToFigureFailed());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushToast('error', m.plateTitle(), m.plateExportFailed({ message }));
+    } finally {
+      exporting = '';
+    }
+  }
+
   async function copyTsv() {
     if (!ensureExportable()) return;
     const rows = buildPlateRows(format, assignments);
@@ -1537,6 +1560,17 @@
           <button class="pix-btn" onclick={() => exportPng(600)} disabled={!hasExportable || !!exporting}>
             <ImagePlus size={11} />
             {m.plateExportPng()} {m.plateDpi600()}
+          </button>
+          <button
+            class="pix-btn span2"
+            onclick={sendToFigureNow}
+            disabled={!hasExportable || !!exporting}
+            title={m.sendToFigure()}
+            aria-label={m.sendToFigure()}
+            data-testid="send-to-figure"
+          >
+            <Send size={11} />
+            {m.sendToFigure()}
           </button>
           <button class="pix-btn span2" onclick={copyTsv} disabled={!hasExportable}>
             <Copy size={11} />

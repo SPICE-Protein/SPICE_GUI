@@ -2,11 +2,29 @@
   import { onMount, tick } from 'svelte';
   import { aiState } from './aiState.svelte.ts';
   import { pushToast } from './toast.svelte.ts';
+  import { streamChat, testConnection, AiRequestError, type AiChatMessage } from '$lib/ai/client';
+  import { buildChatPayload } from '$lib/ai/context';
+  import { parseMutationBlocks, parseDnaBlocks, validateMutations, validateDnaSequence } from '$lib/ai/parse';
+  import { runAgentTurn, type AgentApprovalRequest, type AgentToolEvent } from '$lib/ai/agent';
+  import { buildAgentTools, type AgentWorkspaceContext } from '$lib/ai/tools';
+  import { formatRetrievalContext, retrieve, type SearchDocument } from '$lib/ai/retrieval';
+  import { AGENT_SYSTEM_RULES } from '$lib/ai/prompt';
+  import {
+    listMcpTools,
+    loadMcpServers,
+    newMcpServerId,
+    saveMcpServers,
+    splitArgs,
+    type McpServerConfig,
+    type McpToolDescriptor,
+  } from '$lib/ai/mcp';
+  import { projectStore } from '$lib/project/store.svelte';
   import * as m from '$lib/paraglide/messages.js';
-  import { 
-    Send, Sparkles, Settings, RotateCcw, X, Check, Dna, 
-    Layers, HelpCircle, FileText, AlertCircle, RefreshCw,
-    MessageSquare, Sliders, Activity, Zap, Copy, FileSpreadsheet, Beaker
+  import {
+    Send, Sparkles, Settings, RotateCcw, X, Check, Dna,
+    Layers, HelpCircle, FileText, AlertCircle, RefreshCw, Square,
+    MessageSquare, Sliders, Activity, Zap, Copy, FileSpreadsheet, Beaker,
+    Bot, ShieldCheck, Play, Trash2, Plug, Plus, Undo2
   } from 'lucide-svelte';
 
   const ui = { style: 'pixel', theme: 'midnight' } as const;
@@ -14,6 +32,24 @@
   let inputVal = $state('');
   let showConfig = $state(false);
   let messagesContainer = $state<HTMLDivElement | null>(null);
+  let generationController: AbortController | null = null;
+  let connectionState = $state<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  let connectionDetail = $state('');
+  let discoveredModels = $state<string[]>([]);
+
+  // Agent / MCP / approval state
+  let mcpServers = $state<McpServerConfig[]>([]);
+  let mcpTools = $state<McpToolDescriptor[]>([]);
+  let mcpErrors = $state<string[]>([]);
+  let mcpLoading = $state(false);
+  let mcpLoaded = $state(false);
+  let showMcp = $state(false);
+  let showAudit = $state(false);
+  let approvalData = $state<{ toolName: string; permission: string; preview: string; args: string } | null>(null);
+  let approvalResolver: ((approved: boolean) => void) | null = null;
+  let agentStatus = $state('');
+  let stepPrefix = '';
+  let newMemory = $state('');
 
   // Synchronize main panel context to the offline interactive tools
   function syncContextToTools() {
@@ -56,9 +92,36 @@
       localStorage.setItem('spice_ai_config', JSON.stringify({
         endpoint: aiState.config.endpoint,
         model: aiState.config.model,
-        systemPrompt: aiState.config.systemPrompt
+        systemPrompt: aiState.config.systemPrompt,
+        apiKey: aiState.config.apiKey,
+        temperature: aiState.config.temperature,
+        maxTokens: aiState.config.maxTokens
       }));
     }
+  });
+
+  // Persist the conversation with a short debounce so streaming does not write
+  // localStorage on every token. The "Thinking..." placeholder is never saved.
+  $effect(() => {
+    if (typeof localStorage === 'undefined') return;
+    const snapshot = aiState.messages
+      .filter((msg) => !(msg.role === 'assistant' && msg.text === m.copilotThinking()))
+      .slice(-120)
+      .map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        text: msg.text,
+        timestamp: msg.timestamp,
+        error: msg.error === true,
+        parsedMutations: msg.parsedMutations,
+        parsedSequence: msg.parsedSequence,
+        parsedSop: msg.parsedSop,
+        toolNotes: msg.toolNotes,
+      }));
+    const timer = setTimeout(() => {
+      localStorage.setItem('spice_ai_messages', JSON.stringify(snapshot));
+    }, 400);
+    return () => clearTimeout(timer);
   });
 
   // Save AI Tools states automatically on changes
@@ -179,14 +242,7 @@
       try {
         const decoded = decodeURIComponent(atob(b64));
         const muts = JSON.parse(decoded);
-        if (aiState.onImportMutations && Array.isArray(muts)) {
-          aiState.onImportMutations(muts);
-          pushToast(
-            'success',
-            m.copilotToastMutSuccess(),
-            m.copilotToastMutDesc({ n: muts.length })
-          );
-        }
+        if (Array.isArray(muts)) importMutations(muts);
       } catch (e: any) {
         pushToast(
           'error',
@@ -199,14 +255,7 @@
     (window as any).applyCopilotDna = (b64: string) => {
       try {
         const decoded = decodeURIComponent(atob(b64));
-        if (aiState.onApplyDnaSequence) {
-          aiState.onApplyDnaSequence(decoded);
-          pushToast(
-            'success',
-            m.copilotToastDnaSuccess(),
-            m.copilotToastDnaDesc()
-          );
-        }
+        applyDna(decoded);
       } catch (e: any) {
         pushToast(
           'error',
@@ -338,39 +387,249 @@
       .replace(/'/g, "&#039;");
   }
 
-  // Parse custom formats from LLM response text
-  function extractJsonMutations(text: string) {
-    try {
-      // Find JSON block with mutation arrays
-      const regex = /```json\s*([\s\S]*?)\s*```/;
-      const match = text.match(regex);
-      if (match && match[1]) {
-        const parsed = JSON.parse(match[1]);
-        if (Array.isArray(parsed) && parsed.every(item => 'pos' in item && 'from' in item && 'to' in item)) {
-          return parsed as { pos: number; from: string; to: string }[];
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-    return null;
-  }
-
-  function extractDnaSequence(text: string) {
-    const regex = /```dna\s*([a-zA-Z\s]+)\s*```/;
-    const match = text.match(regex);
-    if (match && match[1]) {
-      return match[1].replace(/[\s\n\r]/g, '').toUpperCase();
-    }
-    return null;
-  }
-
   // Auto-scroll chat history to bottom
   async function scrollToBottom() {
     await tick();
     if (messagesContainer) {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+  }
+
+  function describeAiError(error: unknown): string {
+    if (!(error instanceof AiRequestError)) return String(error);
+    switch (error.kind) {
+      case 'auth':
+        return m.copilotErrorAuth();
+      case 'network':
+        return m.copilotErrorNetwork();
+      case 'timeout':
+        return m.copilotErrorTimeout();
+      case 'rate-limit':
+        return m.copilotErrorRateLimit();
+      case 'server':
+        return m.copilotErrorServer();
+      default:
+        return error.message;
+    }
+  }
+
+  async function handleTestConnection() {
+    connectionState = 'testing';
+    connectionDetail = '';
+    const result = await testConnection(aiState.config, { timeoutMs: 15_000 });
+    if (result.ok) {
+      connectionState = 'ok';
+      discoveredModels = result.models;
+      connectionDetail = m.aiConnectionOk({ n: result.models.length });
+      pushToast('success', m.aiTestConnection(), connectionDetail);
+    } else {
+      connectionState = 'error';
+      discoveredModels = [];
+      connectionDetail = result.error ? describeAiError(result.error) : m.aiConnectionFailed();
+      pushToast('error', m.aiConnectionFailed(), connectionDetail);
+    }
+  }
+
+  // ---------------- MCP servers ----------------
+
+  function persistMcpServers() {
+    saveMcpServers($state.snapshot(mcpServers));
+    mcpLoaded = false;
+  }
+
+  function addMcpServer() {
+    mcpServers = [...mcpServers, {
+      id: newMcpServerId(),
+      name: 'Local MCP',
+      command: 'npx',
+      args: [],
+      env: {},
+      enabled: true,
+    }];
+    persistMcpServers();
+  }
+
+  function removeMcpServer(id: string) {
+    mcpServers = mcpServers.filter((server) => server.id !== id);
+    mcpTools = mcpTools.filter((tool) => tool.serverId !== id);
+    persistMcpServers();
+  }
+
+  function setMcpArgs(server: McpServerConfig, value: string) {
+    server.args = splitArgs(value);
+    persistMcpServers();
+  }
+
+  function setMcpEnv(server: McpServerConfig, value: string) {
+    try {
+      const parsed = JSON.parse(value || '{}');
+      server.env = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? Object.fromEntries(Object.entries(parsed).map(([key, val]) => [key, String(val)]))
+        : {};
+    } catch {
+      server.env = {};
+    }
+    persistMcpServers();
+  }
+
+  async function refreshMcpTools(silent = false) {
+    if (mcpLoading) return;
+    if (!(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)) {
+      mcpErrors = [m.aiMcpDesktopOnly()];
+      return;
+    }
+    mcpLoading = true;
+    try {
+      const result = await listMcpTools($state.snapshot(mcpServers));
+      mcpTools = result.tools;
+      mcpErrors = result.errors;
+      mcpLoaded = true;
+      if (!silent) {
+        if (result.errors.length) pushToast('warn', m.aiMcpRefresh(), result.errors[0]);
+        else pushToast('success', m.aiMcpRefresh(), m.aiMcpToolsFound({ n: result.tools.length }));
+      }
+    } catch (error) {
+      mcpErrors = [error instanceof Error ? error.message : String(error)];
+      if (!silent) pushToast('error', m.aiMcpRefresh(), mcpErrors[0]);
+    } finally {
+      mcpLoading = false;
+    }
+  }
+
+  async function ensureMcpTools() {
+    const enabled = mcpServers.some((server) => server.enabled && server.command.trim());
+    if (enabled && !mcpLoaded && !mcpLoading) await refreshMcpTools(true);
+  }
+
+  // ---------------- workspace context, retrieval, approvals ----------------
+
+  function clipText(value: unknown, max = 12_000): string {
+    const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+    return text.length > max ? `${text.slice(0, max)}…` : text;
+  }
+
+  function buildSearchDocuments(): SearchDocument[] {
+    const documents: SearchDocument[] = [];
+    const project = projectStore.current;
+    if (project) {
+      for (const doc of project.docs) {
+        documents.push({
+          id: `doc:${doc.id}`,
+          kind: doc.kind,
+          title: doc.name,
+          text: clipText(doc.payload),
+        });
+      }
+      for (const page of project.journal.pages) {
+        documents.push({
+          id: `journal:${page.id}`,
+          kind: 'journal',
+          title: page.title || page.category || 'Journal',
+          text: clipText(page.markdownContent),
+        });
+      }
+      for (const file of project.files ?? []) {
+        documents.push({
+          id: `file:${file.id}`,
+          kind: 'file',
+          title: file.name,
+          text: `${file.mime || 'file'} · ${file.size ?? 0} bytes`,
+        });
+      }
+    }
+    if (aiState.geneContext.dnaSequence) {
+      documents.push({
+        id: 'active:gene',
+        kind: 'gene',
+        title: aiState.geneContext.plasmidName || 'Active gene',
+        text: clipText(aiState.geneContext.dnaSequence),
+      });
+    }
+    if (aiState.proteinContext.sequence) {
+      documents.push({
+        id: 'active:protein',
+        kind: 'protein',
+        title: 'Active protein',
+        text: clipText(aiState.proteinContext.sequence),
+      });
+    }
+    for (const entry of aiState.memory) {
+      documents.push({
+        id: `memory:${entry.id}`,
+        kind: 'memory',
+        title: entry.tags.length ? `Memory (${entry.tags.join(', ')})` : 'Memory',
+        text: entry.text,
+      });
+    }
+    return documents;
+  }
+
+  function buildWorkspaceContext(): AgentWorkspaceContext {
+    const metrics = aiState.proteinContext.metrics;
+    return {
+      workspace: aiState.currentWorkspace,
+      protein: {
+        sequence: aiState.proteinContext.sequence,
+        env: { ...aiState.proteinContext.env },
+        metrics: metrics
+          ? Object.fromEntries(Object.entries(metrics).filter(([, value]) => Number.isFinite(Number(value))).map(([key, value]) => [key, Number(value)]))
+          : null,
+        phaseScanCount: aiState.proteinContext.phaseScanCount,
+      },
+      gene: {
+        dnaSequence: aiState.geneContext.dnaSequence,
+        plasmidName: aiState.geneContext.plasmidName,
+        gcContent: aiState.geneContext.gcContent,
+        codonHost: aiState.geneContext.codonHost,
+      },
+      documents: buildSearchDocuments(),
+      memory: [...aiState.memory],
+      mcpServers: $state.snapshot(mcpServers),
+      actions: {
+        applyDnaSequence: aiState.onApplyDnaSequence ?? undefined,
+        applyProteinSequence: aiState.onApplyProteinSequence ?? undefined,
+        importMutations: aiState.onImportMutations ?? undefined,
+        rememberFact: (text, tags) => aiState.rememberFact(text, tags),
+        undoLastChange: aiState.onUndoAiChange ?? undefined,
+      },
+    };
+  }
+
+  function requestApproval(request: AgentApprovalRequest): Promise<boolean> {
+    if (approvalResolver) approvalResolver(false);
+    approvalData = {
+      toolName: request.tool.name ?? request.tool.definition.function.name,
+      permission: request.tool.permission,
+      preview: request.preview,
+      args: clipText(request.args, 3000),
+    };
+    return new Promise((resolve) => {
+      approvalResolver = resolve;
+    });
+  }
+
+  function resolveApproval(approved: boolean) {
+    const resolver = approvalResolver;
+    approvalResolver = null;
+    approvalData = null;
+    resolver?.(approved);
+  }
+
+  function cancelGeneration() {
+    resolveApproval(false);
+    generationController?.abort();
+  }
+
+  function closeCopilot() {
+    resolveApproval(false);
+    if (aiState.isGenerating) generationController?.abort();
+    aiState.isOpen = false;
+  }
+
+  function toolNote(event: AgentToolEvent, done = false): string {
+    const label = `${event.tool.name}${event.approved === false ? ' · rejected' : ''}`;
+    if (!done) return `${label} · running`;
+    return `${label} · ${event.result?.ok ? 'ok' : 'failed'}`;
   }
 
   // Build current context prompt
@@ -410,7 +669,7 @@
 
     inputVal = '';
     const userMsgId = Date.now();
-    
+
     // Push user message
     aiState.messages.push({
       id: userMsgId,
@@ -429,140 +688,143 @@
       text: m.copilotThinking(),
       timestamp: new Date().toLocaleTimeString()
     });
+    const assistantMsg = aiState.messages[aiState.messages.length - 1];
 
     scrollToBottom();
 
-    // Prepare complete request body
-    const messagesPayload = [
-      { role: 'system', content: aiState.config.systemPrompt },
-      { role: 'user', content: m.aiPromptWithContextWrap({ buildContextPrompt: buildContextPrompt(), text: text }) }
-    ];
+    // Send the recent conversation, not just the newest turn. Local welcome,
+    // error, and placeholder notes are excluded so they cannot be replayed as
+    // model output or as instructions. The context builder trims oldest turns
+    // again to fit the model window.
+    const history: AiChatMessage[] = aiState.messages
+      .slice(0, -2)
+      .filter((msg) => msg.id !== 1 && !msg.error && !(msg.role === 'assistant' && msg.text === m.copilotThinking()))
+      .slice(-40)
+      .map((msg) => ({ role: msg.role, content: msg.text }));
+
+    // Ground the turn in the open project and the active workspace. Retrieval
+    // is local and its output is explicitly labelled as untrusted context.
+    const hits = retrieve(text, buildSearchDocuments(), 4);
+    const retrieved = formatRetrievalContext(hits);
+    const contextPrompt = retrieved ? `${buildContextPrompt()}\n${retrieved}` : buildContextPrompt();
+    const userContent = m.aiPromptWithContextWrap({ buildContextPrompt: contextPrompt, text });
+
+    const payload = buildChatPayload({
+      systemPrompt: aiState.agentEnabled
+        ? `${aiState.config.systemPrompt}\n\n${AGENT_SYSTEM_RULES}`
+        : aiState.config.systemPrompt,
+      history,
+      userContent,
+      reserveTokens: aiState.config.maxTokens,
+    });
+
+    const config = {
+      endpoint: aiState.config.endpoint,
+      model: aiState.config.model,
+      apiKey: aiState.config.apiKey,
+      temperature: aiState.config.temperature,
+      maxTokens: aiState.config.maxTokens,
+    };
+
+    generationController = new AbortController();
+    let tokenCount = 0;
+    assistantMsg.toolNotes = [];
 
     try {
-      const response = await fetch(aiState.config.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: aiState.config.model,
-          messages: messagesPayload,
-          temperature: 0.7,
-          stream: false
-        })
-      });
+      if (aiState.agentEnabled) {
+        await ensureMcpTools();
+        const workspace = buildWorkspaceContext();
+        const activeMcpTools = mcpTools.filter((tool) => workspace.mcpServers.some(
+          (server) => server.id === tool.serverId && server.enabled,
+        ));
+        const tools = buildAgentTools(workspace, activeMcpTools);
+        stepPrefix = '';
+        let rawText = '';
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status code: ${response.status}`);
-      }
+        const result = await runAgentTurn({
+          config,
+          messages: payload.messages,
+          tools,
+          context: workspace,
+          maxSteps: 6,
+          contextTokens: 8192,
+          reserveTokens: aiState.config.maxTokens,
+          signal: generationController.signal,
+          onStepStart: (step) => {
+            const current = assistantMsg.text;
+            stepPrefix = step > 0 && current && current !== m.copilotThinking()
+              ? `${current}\n\n`
+              : '';
+          },
+          onToken: (_delta, full) => {
+            assistantMsg.text = `${stepPrefix}${full}`;
+            tokenCount += 1;
+            if (tokenCount % 12 === 0) scrollToBottom();
+          },
+          onToolStart: (event) => {
+            assistantMsg.toolNotes = [...(assistantMsg.toolNotes ?? []), toolNote(event)];
+            agentStatus = toolNote(event);
+          },
+          onToolEnd: (event) => {
+            const notes = [...(assistantMsg.toolNotes ?? [])];
+            if (notes.length) notes[notes.length - 1] = toolNote(event, true);
+            assistantMsg.toolNotes = notes;
+            agentStatus = '';
+          },
+          requestApproval,
+          audit: (record) => aiState.recordAudit(record),
+        });
 
-      const resJson = await response.json();
-      const rawText = resJson.choices?.[0]?.message?.content || m.copilotNoValidContent();
+        rawText = result.content;
+        if (!rawText.trim() && result.stoppedReason === 'max-steps') {
+          assistantMsg.text = `${stepPrefix}${m.copilotMaxSteps()}`;
+          assistantMsg.error = true;
+        } else {
+          assistantMsg.text = `${stepPrefix}${rawText}`.trim();
+        }
+        assistantMsg.parsedMutations = parseMutationBlocks(rawText);
+        assistantMsg.parsedSequence = parseDnaBlocks(rawText) ?? undefined;
+      } else {
+        const rawText = await streamChat(
+          config,
+          payload.messages,
+          {
+            timeoutMs: 60_000,
+            signal: generationController.signal,
+            onToken: (_delta, full) => {
+              assistantMsg.text = full;
+              tokenCount += 1;
+              if (tokenCount % 12 === 0) scrollToBottom();
+            },
+          },
+        );
 
-      // Update assistant message with actual LLM response
-      const updatedMsg = aiState.messages.find(m => m.id === assistantMsgId);
-      if (updatedMsg) {
-        updatedMsg.text = rawText;
-        updatedMsg.parsedMutations = extractJsonMutations(rawText) || undefined;
-        updatedMsg.parsedSequence = extractDnaSequence(rawText) || undefined;
+        assistantMsg.text = rawText;
+        assistantMsg.parsedMutations = parseMutationBlocks(rawText);
+        assistantMsg.parsedSequence = parseDnaBlocks(rawText) ?? undefined;
       }
-    } catch (err: any) {
-      // Handle connection error or provide smart local fallback
-      const updatedMsg = aiState.messages.find(m => m.id === assistantMsgId);
-      if (updatedMsg) {
-        updatedMsg.text = `${m.copilotAiOfflineTitle()}\n${m.copilotAiOfflineAddr({ v1: aiState.config.endpoint })}\n\n${m.copilotAiOfflineHowHeading()}\n${m.copilotAiOfflineStep1()}\n${m.copilotAiOfflineStep2({ v1: aiState.config.model })}\n${m.copilotAiOfflineStep3()}\n\n${m.copilotAiOfflineSimHeading()}\n${getSimulatedResponse(text)}`;
-        
-        // Also parse mutations / DNA if simulated
-        const simText = getSimulatedResponse(text);
-        updatedMsg.parsedMutations = extractJsonMutations(simText) || undefined;
-        updatedMsg.parsedSequence = extractDnaSequence(simText) || undefined;
+    } catch (err) {
+      const cancelled = err instanceof AiRequestError
+        && err.kind === 'network'
+        && err.message === 'request cancelled';
+      if (cancelled) {
+        assistantMsg.text = assistantMsg.text && assistantMsg.text !== m.copilotThinking()
+          ? `${assistantMsg.text}\n\n_${m.copilotCancelled()}_`
+          : m.copilotCancelled();
+        assistantMsg.error = true;
+      } else {
+        const detail = describeAiError(err);
+        assistantMsg.text = m.copilotRequestError({ msg: detail });
+        assistantMsg.error = true;
+        pushToast('error', m.copilotRequestFailed(), detail);
       }
-      pushToast('warn', m.copilotAiConnBlocked(), m.copilotAiConnBlockedDesc());
     } finally {
+      generationController = null;
+      agentStatus = '';
+      resolveApproval(false);
       aiState.isGenerating = false;
       scrollToBottom();
     }
-  }
-
-  // Pre-configured physics-informed expert templates for offline/fallback mode
-  function getSimulatedResponse(prompt: string): string {
-    const p = prompt.toLowerCase();
-    
-    if (p.includes(m.mutation()) || p.includes('mutation') || p.includes('stable') || p.includes(m.stable())) {
-      return `${m.copilotSimMutTitle()}
-${m.copilotSimMutAnalysis()}
-
-${m.copilotSimMutSurfaceAdvice()}
-${m.copilotSimMutRescueIntro()}
-
-\`\`\`json
-[
-  {"pos": 103, "from": "Q", "to": "S", "score": 0.89},
-  {"pos": 107, "from": "D", "to": "R", "score": 0.94},
-  {"pos": 112, "from": "A", "to": "V", "score": 0.82}
-]
-\`\`\`
-
-${m.copilotSimMutMechHeading()}
-${m.copilotSimMutMechD107R()}
-${m.copilotSimMutMechA112V()}
-
-${m.copilotSimMutImportHint()}`;
-    }
-
-    if (p.includes(m.optimize()) || p.includes('codon') || p.includes(m.codon())) {
-      const parentDna = aiState.geneContext.dnaSequence || 'ATGCGTACGTTAGTC';
-      return `${m.copilotSimCodonTitle()}
-${m.copilotSimCodonHostLine({ v1: aiState.geneContext.codonHost || m.copilotCtxHostEcoli() })}
-${m.copilotSimCodonGoal()}
-
-${m.copilotSimCodonSeqHeading()}
-\`\`\`dna
-ATGAGGACTGTGCTCAGCGAAGCGGCCGCGAAATTGGTGAAT
-\`\`\`
-
-${m.copilotSimCodonPropsHeading()}
-${m.copilotSimCodonGcLine({ v1: aiState.geneContext.gcContent.toFixed(1) })}
-${m.copilotSimCodonSitesLine()}
-
-${m.copilotSimCodonApplyHint()}`;
-    }
-
-    if (p.includes(m.copilotPlanWord().toLowerCase()) || p.includes('sop') || p.includes('protocol') || p.includes('pcr')) {
-      return `${m.copilotSimSopTitle()}
-${m.copilotSimSopIntro()}
-
-${m.copilotSimSopH1()}
-   - ${m.copilotSimSopFwdStock()}
-   - ${m.copilotSimSopRevStock()}
-${m.copilotSimSopH2()}
-   - 2x Phanta Master Mix: 25 µL
-   - Template DNA (10 ng/µL): 1 µL
-   - Fwd Primer (10 µM): 2 µL
-   - Rev Primer (10 µM): 2 µL
-   - ddH2O: 20 µL
-   - *${m.copilotSimSopPcrCyclingLine()}*
-${m.copilotSimSopH3()}
-   - pUC19 Backbone (50 ng): 1 µL
-   - Insert PCR Product (3-fold molar excess): 3 µL
-   - BsaI-HF v2 (Restriction Enzyme): 1 µL
-   - T4 DNA Ligase: 1 µL
-   - 10x T4 Ligase Buffer: 2 µL
-   - ddH2O: 12 µL
-   - *${m.copilotSimSopAssemblyCycling()}*
-
-${m.copilotSimSopOutro()}`;
-    }
-
-    return `${m.copilotSimDefaultTitle()}
-${m.copilotSimDefaultIntro()}
-${m.copilotSimDefaultProteinLine({ v1: aiState.proteinContext.sequence.length })}
-${m.copilotSimDefaultDnaLine({ v1: aiState.geneContext.dnaSequence.length })}
-
-${m.copilotSimDefaultAskHeading()}
-${m.copilotSimDefaultQ1()}
-${m.copilotSimDefaultQ2()}
-${m.copilotSimDefaultQ3()}`;
   }
 
   function handleQuickAction(type: 'mut' | 'codon' | 'sop') {
@@ -576,28 +838,37 @@ ${m.copilotSimDefaultQ3()}`;
     sendMessage();
   }
 
-  // Action: Apply DNA sequence to gene workbench
+  // Action: Apply DNA sequence to gene workbench. The model reply is
+  // untrusted: validate the alphabet and confirm before replacing a construct.
   function applyDna(seq: string) {
-    if (aiState.onApplyDnaSequence) {
-      aiState.onApplyDnaSequence(seq);
-      pushToast(
-        'success',
-        m.copilotToastLoadDnaSuccess(),
-        m.copilotToastLoadDnaDesc()
-      );
-    } else {
-      pushToast(
-        'error',
-        m.copilotToastLoadFail(),
-        m.copilotToastNoGeneEditor()
-      );
+    const checked = validateDnaSequence(seq);
+    if (checked.error) {
+      pushToast('error', m.copilotInvalidDna(), checked.error);
+      return;
     }
+    if (!aiState.onApplyDnaSequence) {
+      pushToast('error', m.copilotToastLoadFail(), m.copilotToastNoGeneEditor());
+      return;
+    }
+    if (!confirm(m.copilotConfirmDnaApply({ n: checked.sequence.length }))) return;
+
+    aiState.onApplyDnaSequence(checked.sequence);
+    pushToast(
+      'success',
+      m.copilotToastLoadDnaSuccess(),
+      m.copilotToastLoadDnaDesc()
+    );
   }
 
   // Action: Apply protein sequence
   function applyProtein(seq: string) {
+    const clean = String(seq ?? '').trim().toUpperCase();
+    if (!/^[ACDEFGHIKLMNPQRSTVWY]+$/.test(clean)) {
+      pushToast('error', m.copilotInvalidProtein(), m.copilotInvalidProteinDesc());
+      return;
+    }
     if (aiState.onApplyProteinSequence) {
-      aiState.onApplyProteinSequence(seq);
+      aiState.onApplyProteinSequence(clean);
       pushToast(
         'success',
         m.copilotToastLoadProteinSuccess(),
@@ -614,29 +885,36 @@ ${m.copilotSimDefaultQ3()}`;
 
   // Action: Import mutation list
   function importMutations(muts: { pos: number; from: string; to: string }[]) {
-    if (aiState.onImportMutations) {
-      aiState.onImportMutations(muts);
-      pushToast(
-        'success',
-        m.copilotToastImportMutSuccess(),
-        m.copilotToastImportMutDesc({ n: muts.length })
-      );
-    } else {
-      pushToast(
-        'error',
-        m.copilotToastLoadFail(),
-        m.copilotToastNoProteinMut()
-      );
+    const checked = validateMutations(muts, aiState.proteinContext.sequence);
+    if (checked.errors.length) {
+      pushToast('error', m.copilotInvalidMutation(), checked.errors[0]);
+      return;
     }
+    if (!checked.valid.length) return;
+    if (!aiState.onImportMutations) {
+      pushToast('error', m.copilotToastLoadFail(), m.copilotToastNoProteinMut());
+      return;
+    }
+
+    aiState.onImportMutations(checked.valid);
+    pushToast(
+      'success',
+      m.copilotToastImportMutSuccess(),
+      m.copilotToastImportMutDesc({ n: checked.valid.length })
+    );
   }
 
   onMount(() => {
+    mcpServers = loadMcpServers();
     scrollToBottom();
+    return () => {
+      resolveApproval(false);
+    };
   });
 </script>
 
 {#if aiState.isOpen}
-  <aside class="ai-sidebar pix-panel">
+  <aside class="ai-sidebar pix-panel" data-testid="ai-panel">
     <!-- Header -->
     <header class="ai-sidebar-header">
       <div class="ai-title">
@@ -644,13 +922,13 @@ ${m.copilotSimDefaultQ3()}`;
         <span>{m.aiWorkspaceTitle()}</span>
       </div>
       <div class="ai-actions">
-        <button class="pix-btn-reset header-btn" onclick={() => showConfig = !showConfig} title={m.copilotSettings()}>
+        <button class="pix-btn-reset header-btn" data-testid="ai-config-toggle" onclick={() => showConfig = !showConfig} title={m.copilotSettings()}>
           <Settings size={13} class={showConfig ? 'active-icon' : ''} />
         </button>
         <button class="pix-btn-reset header-btn" onclick={() => aiState.clearHistory()} title={m.appReset()}>
           <RotateCcw size={13} />
         </button>
-        <button class="pix-btn-reset header-close" onclick={() => aiState.isOpen = false}>
+        <button class="pix-btn-reset header-close" onclick={closeCopilot}>
           <X size={14} />
         </button>
       </div>
@@ -658,7 +936,7 @@ ${m.copilotSimDefaultQ3()}`;
 
     <!-- Configuration Settings Pane -->
     {#if showConfig}
-      <div class="ai-config-pane">
+      <div class="ai-config-pane" data-testid="ai-config-pane">
         <div class="config-title">{m.copilotSettings()}</div>
         <div class="form-group">
           <label for="endpoint-input">{m.aiApiEndpoint()}</label>
@@ -666,12 +944,134 @@ ${m.copilotSimDefaultQ3()}`;
         </div>
         <div class="form-group">
           <label for="model-input">{m.aiTargetModel()}</label>
-          <input id="model-input" class="pix-input" type="text" bind:value={aiState.config.model} />
+          <input id="model-input" class="pix-input" type="text" list="ai-model-options" bind:value={aiState.config.model} />
+          <datalist id="ai-model-options">
+            {#each discoveredModels as model}
+              <option value={model}></option>
+            {/each}
+          </datalist>
+          <div class="connection-row">
+            <button
+              class="pix-btn-reset action-btn"
+              onclick={handleTestConnection}
+              disabled={connectionState === 'testing'}
+            >
+              {#if connectionState === 'testing'}
+                <RefreshCw size={11} class="spin" style="margin-right: 3px;" />
+              {:else}
+                <Zap size={11} style="margin-right: 3px;" />
+              {/if}
+              {connectionState === 'testing' ? m.aiTestingConnection() : m.aiTestConnection()}
+            </button>
+            {#if connectionState !== 'idle' && connectionState !== 'testing'}
+              <span class="connection-status {connectionState}" title={connectionDetail}>
+                {connectionDetail}
+              </span>
+            {/if}
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="api-key-input">{m.aiApiKey()}</label>
+          <input id="api-key-input" class="pix-input" type="password" autocomplete="off" bind:value={aiState.config.apiKey} />
+        </div>
+        <div class="form-group">
+          <label for="temperature-input">{m.aiTemperature()}</label>
+          <input id="temperature-input" class="pix-input" type="number" min="0" max="2" step="0.1" bind:value={aiState.config.temperature} />
         </div>
         <div class="form-group">
           <label for="prompt-input">{m.aiSystemPrompt()}</label>
           <textarea id="prompt-input" class="pix-textarea" rows={6} bind:value={aiState.config.systemPrompt}></textarea>
         </div>
+
+        <label class="agent-toggle" title={m.aiAgentModeDesc()}>
+          <input
+            type="checkbox"
+            data-testid="ai-agent-enabled"
+            checked={aiState.agentEnabled}
+            onchange={(event) => aiState.setAgentEnabled(event.currentTarget.checked)}
+          />
+          <span><Bot size={12} /> {m.aiAgentMode()}</span>
+        </label>
+
+        <details class="config-section" bind:open={showMcp}>
+          <summary><Plug size={11} /> {m.aiMcpServers()} ({mcpServers.length})</summary>
+          <div class="mcp-toolbar">
+            <button class="pix-btn-reset action-btn" onclick={addMcpServer}><Plus size={11} /> {m.aiMcpAdd()}</button>
+            <button class="pix-btn-reset action-btn" onclick={() => refreshMcpTools()} disabled={mcpLoading}>
+              <RefreshCw size={11} class={mcpLoading ? 'spin' : ''} /> {m.aiMcpRefresh()}
+            </button>
+          </div>
+          {#each mcpServers as server (server.id)}
+            <div class="mcp-server">
+              <div class="mcp-row">
+                <input type="checkbox" bind:checked={server.enabled} onchange={persistMcpServers} title={m.aiMcpEnabled()} />
+                <input class="pix-input mcp-name" bind:value={server.name} onchange={persistMcpServers} placeholder={m.aiMcpName()} />
+                <button class="pix-btn-reset mcp-remove" onclick={() => removeMcpServer(server.id)} title={m.delete()}><Trash2 size={11} /></button>
+              </div>
+              <input class="pix-input" bind:value={server.command} onchange={persistMcpServers} placeholder={m.aiMcpCommand()} />
+              <input
+                class="pix-input"
+                value={server.args.join(' ')}
+                onchange={(event) => setMcpArgs(server, event.currentTarget.value)}
+                placeholder={m.aiMcpArgs()}
+              />
+              <textarea
+                class="pix-textarea mcp-env"
+                rows={2}
+                value={JSON.stringify(server.env)}
+                onchange={(event) => setMcpEnv(server, event.currentTarget.value)}
+                placeholder={m.aiMcpEnv()}
+              ></textarea>
+            </div>
+          {/each}
+          {#if mcpErrors.length}
+            <div class="mcp-errors">{mcpErrors.join(' · ')}</div>
+          {/if}
+          <div class="mcp-tools-count">{m.aiMcpToolsFound({ n: mcpTools.length })}</div>
+        </details>
+
+        <details class="config-section">
+          <summary>{m.aiMemory()} ({aiState.memory.length})</summary>
+          <div class="memory-add">
+            <input class="pix-input" bind:value={newMemory} placeholder={m.aiMemoryPlaceholder()} />
+            <button
+              class="pix-btn-reset action-btn"
+              disabled={!newMemory.trim()}
+              onclick={() => { aiState.rememberFact(newMemory, []); newMemory = ''; }}
+            ><Plus size={11} /></button>
+          </div>
+          {#each aiState.memory.slice(0, 20) as entry (entry.id)}
+            <div class="memory-row">
+              <span>{entry.text}</span>
+              <button class="pix-btn-reset mcp-remove" onclick={() => aiState.forgetMemory(entry.id)} title={m.delete()}><Trash2 size={11} /></button>
+            </div>
+          {/each}
+        </details>
+
+        <details class="config-section" bind:open={showAudit}>
+          <summary data-testid="ai-audit-summary"><Activity size={11} /> {m.aiAudit()} ({aiState.audit.length})</summary>
+          {#if aiState.audit.length}
+            <div class="audit-list">
+              {#each aiState.audit.slice(0, 15) as entry (entry.id)}
+                <div class="audit-row" data-testid="ai-audit-row">
+                  <span class="audit-time">{entry.at.slice(11, 19)}</span>
+                  <span class="audit-tool">{entry.tool}</span>
+                  <span class="audit-kind {entry.ok ? 'ok' : 'bad'}">{entry.kind}{entry.approved === false ? ' · rejected' : ''}</span>
+                  <span class="audit-summary" title={entry.summary}>{entry.summary}</span>
+                </div>
+              {/each}
+            </div>
+            <div class="mcp-toolbar">
+              {#if aiState.onUndoAiChange}
+                <button class="pix-btn-reset action-btn" onclick={() => aiState.onUndoAiChange?.()}><Undo2 size={11} /> {m.aiUndo()} </button>
+              {/if}
+              <button class="pix-btn-reset action-btn" onclick={() => aiState.clearAuditLog()}>{m.aiAuditClear()}</button>
+            </div>
+          {:else}
+            <div class="mcp-tools-count">{m.aiAuditEmpty()}</div>
+          {/if}
+        </details>
+
         <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
           <button class="pix-btn-reset action-btn" onclick={() => showConfig = false} style="font-size: 10px;">
             <Check size={11} style="margin-right: 3px;" /> {m.copilotBtnSaveReturn()}
@@ -751,15 +1151,22 @@ ${m.copilotSimDefaultQ3()}`;
     <!-- MAIN PANEL CONTENT -->
     {#if aiState.activeTab === 'chat'}
       <!-- 1. CHAT PANEL -->
-      <div class="ai-messages" bind:this={messagesContainer}>
+      <div class="ai-messages" data-testid="ai-messages" bind:this={messagesContainer}>
         {#each aiState.messages as msg (msg.id)}
-          <div class="msg-wrapper msg-{msg.role}">
+          <div class="msg-wrapper msg-{msg.role}" data-testid="ai-message" data-role={msg.role}>
             <div class="msg-header">
               <span class="msg-sender">{msg.role === 'user' ? 'RedElectricity' : 'SPICE AI'}</span>
               <span class="msg-time">{msg.timestamp}</span>
             </div>
             <div class="msg-body">
               {#if msg.role === 'assistant'}
+                {#if msg.toolNotes?.length}
+                  <div class="tool-notes" data-testid="ai-tool-notes">
+                    {#each msg.toolNotes as note}
+                      <span class="tool-note" data-testid="ai-tool-note"><Bot size={10} /> {note}</span>
+                    {/each}
+                  </div>
+                {/if}
                 <div class="markdown-body" style="word-break: break-word;">
                   {@html renderMarkdown(msg.text)}
                 </div>
@@ -808,10 +1215,14 @@ ${m.copilotSimDefaultQ3()}`;
 
       <!-- Input area -->
       <footer class="ai-input-area">
-        <textarea 
-          class="pix-textarea ai-input-box" 
-          rows={2} 
-          bind:value={inputVal} 
+        {#if agentStatus}
+          <div class="agent-status"><RefreshCw size={10} class="spin" /> {agentStatus}</div>
+        {/if}
+        <textarea
+          class="pix-textarea ai-input-box"
+          data-testid="ai-input"
+          rows={2}
+          bind:value={inputVal}
           placeholder={m.copilotInputPlaceholder()}
           onkeydown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -820,13 +1231,14 @@ ${m.copilotSimDefaultQ3()}`;
             }
           }}
         ></textarea>
-        <button 
-          class="pix-btn-reset send-btn {aiState.isGenerating ? 'loading' : ''}" 
-          disabled={aiState.isGenerating || !inputVal.trim()} 
-          onclick={sendMessage}
+        <button
+          class="pix-btn-reset send-btn {aiState.isGenerating ? 'loading' : ''}"
+          data-testid="ai-send"
+          disabled={!aiState.isGenerating && !inputVal.trim()}
+          onclick={aiState.isGenerating ? cancelGeneration : sendMessage}
         >
           {#if aiState.isGenerating}
-            <RefreshCw size={13} class="spin" />
+            <Square size={12} />
           {:else}
             <Send size={13} />
           {/if}
@@ -947,19 +1359,9 @@ ${m.copilotSimDefaultQ3()}`;
 
                   <div class="metric-grid-2">
                     <div class="metric-card">
-                      <span class="m-label">{m.copilotMetricM1()}</span>
-                      <span class="m-value font-mono">{aiState.mutTool.result.m1_mad.toFixed(3)}</span>
-                      <span class="m-desc">MAD Fluctuation (Å)</span>
-                    </div>
-                    <div class="metric-card">
-                      <span class="m-label">{m.copilotMetricM3()}</span>
-                      <span class="m-value font-mono">{aiState.mutTool.result.m3_hbond}</span>
-                      <span class="m-desc">DSSP-Lite H-Bonds</span>
-                    </div>
-                    <div class="metric-card">
-                      <span class="m-label">{m.copilotMetricM5()}</span>
-                      <span class="m-value font-mono">{aiState.mutTool.result.m5_burial}</span>
-                      <span class="m-desc">{aiState.mutTool.result.m5_burial > 25 ? 'Buried' : 'Surface'}</span>
+                      <span class="m-label">{m.copilotReportHeadline()}</span>
+                      <span class="m-value font-mono">{aiState.mutTool.result.classification}</span>
+                      <span class="m-desc">{aiState.mutTool.result.isStable ? 'Stabilizing' : 'Destabilizing'}</span>
                     </div>
                     <div class="metric-card">
                       <span class="m-label">{m.copilotMetricNeutralize()}</span>
@@ -1279,11 +1681,34 @@ ${m.copilotSimDefaultQ3()}`;
         </div>
       </div>
     {/if}
+
+    {#if approvalData}
+      <div class="approval-overlay" data-testid="ai-approval">
+        <div class="approval-box pix-panel">
+          <div class="approval-title"><ShieldCheck size={14} /> {m.aiApprovalTitle()}</div>
+          <div class="approval-tool"><strong>{approvalData.toolName}</strong> · {approvalData.permission}</div>
+          <pre class="approval-preview">{approvalData.preview}</pre>
+          <details class="approval-args">
+            <summary>{m.aiApprovalArgs()}</summary>
+            <pre>{approvalData.args}</pre>
+          </details>
+          <div class="approval-actions">
+            <button class="pix-btn-reset action-btn reject-btn" data-testid="ai-reject" onclick={() => resolveApproval(false)}>
+              <X size={12} /> {m.aiApprovalReject()}
+            </button>
+            <button class="pix-btn-reset action-btn approve-btn" data-testid="ai-approve" onclick={() => resolveApproval(true)}>
+              <Play size={12} /> {m.aiApprovalApprove()}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </aside>
 {/if}
 
 <style>
   .ai-sidebar {
+    position: relative;
     width: 320px;
     height: 100%;
     background: var(--pix-bg-3);
@@ -1359,6 +1784,9 @@ ${m.copilotSimDefaultQ3()}`;
     flex-direction: column;
     gap: 8px;
     font-size: 10px;
+    max-height: 56vh;
+    overflow-y: auto;
+    flex: 0 0 auto;
   }
 
   .config-title {
@@ -1418,6 +1846,210 @@ ${m.copilotSimDefaultQ3()}`;
     border-color: var(--pix-green);
     color: var(--pix-green);
   }
+  .action-btn:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  .connection-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .connection-status {
+    font-size: 9px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .connection-status.ok { color: var(--pix-green); }
+  .connection-status.error { color: var(--pix-red); }
+
+  .agent-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--pix-fg);
+    cursor: pointer;
+  }
+  .agent-toggle span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .config-section {
+    border: 1px solid var(--pix-border);
+    background: var(--pix-bg-1);
+    padding: 5px 6px;
+    font-size: 9.5px;
+  }
+  .config-section summary {
+    cursor: pointer;
+    color: var(--pix-fg-dim);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .mcp-toolbar {
+    display: flex;
+    gap: 5px;
+    margin: 5px 0;
+    flex-wrap: wrap;
+  }
+  .mcp-server {
+    border-top: 1px dashed var(--pix-border);
+    padding-top: 5px;
+    margin-top: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .mcp-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .mcp-name { flex: 1 1 auto; }
+  .mcp-remove {
+    color: var(--pix-fg-dim);
+    padding: 1px 3px;
+  }
+  .mcp-remove:hover { color: var(--pix-red); }
+  .mcp-env { min-height: 30px; }
+  .mcp-errors {
+    color: var(--pix-red);
+    font-size: 9px;
+    white-space: pre-wrap;
+    margin-top: 4px;
+  }
+  .mcp-tools-count {
+    color: var(--pix-fg-dim);
+    font-size: 9px;
+    margin-top: 4px;
+  }
+  .memory-add {
+    display: flex;
+    gap: 4px;
+    margin: 5px 0;
+  }
+  .memory-add .pix-input { flex: 1 1 auto; }
+  .memory-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    border-top: 1px dashed var(--pix-border);
+    padding-top: 3px;
+    margin-top: 3px;
+  }
+  .memory-row span {
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+  }
+  .audit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 5px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .audit-row {
+    display: grid;
+    grid-template-columns: 42px 78px 58px 1fr;
+    gap: 3px;
+    align-items: center;
+    font-size: 8.5px;
+    border-bottom: 1px solid var(--pix-border);
+    padding-bottom: 2px;
+  }
+  .audit-time { color: var(--pix-fg-dim); }
+  .audit-tool { color: var(--pix-accent-2); overflow: hidden; text-overflow: ellipsis; }
+  .audit-kind.ok { color: var(--pix-green); }
+  .audit-kind.bad { color: var(--pix-red); }
+  .audit-summary { color: var(--pix-fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tool-notes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-bottom: 5px;
+  }
+  .tool-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 8.5px;
+    color: var(--pix-accent-2);
+    border: 1px solid var(--pix-border);
+    background: var(--pix-bg-1);
+    padding: 1px 4px;
+  }
+  .agent-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--pix-accent-2);
+    padding: 2px 4px;
+  }
+
+  .approval-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    z-index: 50;
+  }
+  .approval-box {
+    width: 100%;
+    max-height: 86%;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 10px;
+    border-color: var(--pix-accent);
+  }
+  .approval-title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: bold;
+    color: var(--pix-accent-2);
+  }
+  .approval-tool { color: var(--pix-fg-dim); }
+  .approval-preview {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--pix-bg-1);
+    border: 1px solid var(--pix-border);
+    padding: 6px;
+    margin: 0;
+    font-family: var(--pix-font-mono, monospace);
+    font-size: 9px;
+    color: var(--pix-fg);
+  }
+  .approval-args summary { cursor: pointer; color: var(--pix-fg-dim); }
+  .approval-args pre {
+    max-height: 120px;
+    overflow: auto;
+    font-size: 8.5px;
+    white-space: pre-wrap;
+  }
+  .approval-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .approve-btn { border-color: var(--pix-green); color: var(--pix-green); }
+  .reject-btn { border-color: var(--pix-red); color: var(--pix-red); }
 
   /* Chat Messages */
   .ai-messages {

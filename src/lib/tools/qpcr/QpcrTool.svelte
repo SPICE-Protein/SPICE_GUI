@@ -9,6 +9,8 @@
   import { projectStore } from '$lib/project/store.svelte.ts';
   import { ensureProjectLoaded, takeToolHandoff } from '$lib/tools/shared/projectBridge';
   import { parsePlateMap, plateMapToQpcrTsv } from '$lib/tools/shared/samples';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
+  import { bytesToDataUrl } from '$lib/tools/shared/canvas';
   import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
   import {
     Upload,
@@ -27,7 +29,8 @@
     Check,
     X,
     Archive,
-    FileSpreadsheet
+    FileSpreadsheet,
+    Send
   } from 'lucide-svelte';
   import {
     autoMap,
@@ -671,6 +674,29 @@
     }
   }
 
+  async function sendChartToFigure() {
+    if (!chartDoc) {
+      toastError(m.qpcrChartEmptyToast());
+      return;
+    }
+    if (busy) return;
+    busy = m.qpcrBusyExport();
+    try {
+      const bytes = await svgToPngBytes(chartDoc.svg, chartDoc.width, chartDoc.height, 2);
+      const ok = await sendImageToFigure({
+        dataUrl: await bytesToDataUrl(bytes, 'image/png'),
+        name: `${docName()} chart`,
+        width: chartDoc.width * 2,
+        height: chartDoc.height * 2,
+      });
+      if (!ok) toastError(tm.sendToFigureFailed());
+    } catch (error) {
+      toastError(m.qpcrExportFailed(), error instanceof Error ? error.message : String(error));
+    } finally {
+      busy = '';
+    }
+  }
+
   async function exportProjectJson() {
     const snapshot = JSON.parse(JSON.stringify(project)) as QpcrProject;
     snapshot.updatedAt = new Date().toISOString();
@@ -953,6 +979,16 @@
           <Grid3x3 size={11} /> {m.qpcrExportPng()}
         </button>
       </div>
+      <button
+        class="pix-btn full"
+        onclick={sendChartToFigure}
+        disabled={!chartDoc || !!busy}
+        title={tm.sendToFigure()}
+        aria-label={tm.sendToFigure()}
+        data-testid="send-to-figure"
+      >
+        <Send size={11} /> {tm.sendToFigure()}
+      </button>
       <div class="row">
         <button class="pix-btn" onclick={exportProjectJson}>
           <Download size={11} /> {m.qpcrSaveProject()}

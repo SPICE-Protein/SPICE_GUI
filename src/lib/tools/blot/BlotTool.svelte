@@ -12,12 +12,13 @@
   import { imageFiles } from '$lib/tools/shared/batch';
   import { runBatchJob } from '$lib/tools/shared/batchWorker';
   import { saveZip } from '$lib/tools/shared/zipExport';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
   import ToolProjectBar from '$lib/tools/shared/ToolProjectBar.svelte';
   import {
     Upload, Download, Save, FolderOpen, Undo2, Redo2, Trash2, Plus, RotateCcw,
     RotateCw, Wand2, Crosshair, Crop, Layers, MousePointer2, Eye, EyeOff,
     RefreshCw, FileText, Eraser, ZoomIn, ZoomOut, ScanLine, MousePointerClick,
-    Archive, Images,
+    Archive, Images, Send,
   } from 'lucide-svelte';
   import {
     decodeImageFile, loadImageElement, renderProcessed, rotateCoordinates,
@@ -1280,6 +1281,31 @@
     }
   }
 
+  async function sendToFigureNow() {
+    if (!processed) {
+      toast(false, m.blotNoImage());
+      return;
+    }
+    if (busy) return;
+    try {
+      const canvas = annotatedCanvas(project, processed.canvas, {
+        selectedLaneId,
+        selectedBandId: null,
+        laneLabels: project.showLaneLabels,
+        roi: project.showRoi,
+      });
+      const ok = await sendImageToFigure({
+        dataUrl: canvas.toDataURL('image/png'),
+        name: `${projectBase()}_annotated`,
+        width: canvas.width,
+        height: canvas.height,
+      });
+      if (!ok) toast(false, tm.sendToFigureFailed());
+    } catch (error) {
+      toast(false, error instanceof Error ? error.message : m.blotExportFailed());
+    }
+  }
+
   async function exportFigureSvg() {
     if (!processed || !quant) {
       toast(false, m.blotNoImage());
@@ -1508,6 +1534,16 @@
     </button>
     <button class="pix-btn ok" disabled={!hasImage} onclick={exportFigureSvg}>
       <Download size={12} /> {m.blotExportFigure()}
+    </button>
+    <button
+      class="pix-btn"
+      disabled={!hasImage || !!busy}
+      onclick={sendToFigureNow}
+      title={tm.sendToFigure()}
+      aria-label={tm.sendToFigure()}
+      data-testid="send-to-figure"
+    >
+      <Send size={12} />
     </button>
     <button class="pix-btn danger" disabled={!hasImage} onclick={resetAll}>
       <Eraser size={12} /> {m.blotReset()}

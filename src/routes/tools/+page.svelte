@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import * as m from '$lib/paraglide/messages.js';
   import { aiState } from '$lib/ui/aiState.svelte.ts';
-  import { ScanLine, ChevronRight, Wrench, Activity, BarChart3, Grid3X3, Microscope, ImagePlus, GitBranch } from 'lucide-svelte';
+  import { ScanLine, ChevronRight, Wrench, Activity, BarChart3, Grid3X3, Microscope, ImagePlus, GitBranch, Shapes } from 'lucide-svelte';
 
   onMount(() => {
     aiState.currentWorkspace = 'general';
@@ -80,6 +80,16 @@
       bg: 'rgba(255, 122, 89, 0.08)',
       href: '/tools/tree',
       icon: GitBranch,
+    },
+    {
+      id: 'figure',
+      title: m.toolsFigureTitle(),
+      desc: m.toolsFigureDesc(),
+      action: m.toolsOpen(),
+      color: 'var(--pix-accent-2)',
+      bg: 'rgba(226, 180, 72, 0.08)',
+      href: '/tools/figure',
+      icon: Shapes,
     },
   ]);
 </script>

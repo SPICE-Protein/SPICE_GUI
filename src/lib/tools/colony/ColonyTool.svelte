@@ -16,6 +16,7 @@
     RotateCw,
     Save,
     ScanLine,
+    Send,
     SlidersHorizontal,
     Trash2,
     Upload,
@@ -60,6 +61,7 @@
     projectJson,
     renderAnnotated
   } from './export';
+  import { sendImageToFigure } from '$lib/tools/shared/figureBridge';
   import { clearSnapshot, compactProjectImage, loadSnapshot, saveSnapshot } from './storage';
   import {
     defaultAdjust,
@@ -1001,6 +1003,25 @@
     }
   }
 
+  async function sendToFigureNow() {
+    if (!processedCanvas || !hasImage || busy !== '') return;
+    busy = 'export';
+    try {
+      const canvas = renderAnnotated(processedCanvas, markers, numbering, showNumbers);
+      const ok = await sendImageToFigure({
+        dataUrl: canvas.toDataURL('image/png'),
+        name: `${baseName()}_annotated`,
+        width: canvas.width,
+        height: canvas.height,
+      });
+      if (!ok) toast(false, m.sendToFigureFailed());
+    } catch (error) {
+      toast(false, error instanceof Error ? error.message : m.colonyExportFailed());
+    } finally {
+      busy = '';
+    }
+  }
+
   async function exportMask() {
     if (!maskPlane) return;
     busy = 'export';
@@ -1893,6 +1914,16 @@
           </div>
           <button class="pix-btn" disabled={!hasImage || busy !== ''} onclick={exportAnnotated}>
             <Download size={11} /> {m.colonyExportPng()}
+          </button>
+          <button
+            class="pix-btn"
+            disabled={!hasImage || !processedCanvas || busy !== ''}
+            onclick={sendToFigureNow}
+            title={m.sendToFigure()}
+            aria-label={m.sendToFigure()}
+            data-testid="send-to-figure"
+          >
+            <Send size={11} /> {m.sendToFigure()}
           </button>
           <button class="pix-btn" disabled={!hasMask || busy !== ''} onclick={exportMask}>
             <Download size={11} /> {m.colonyExportMask()}

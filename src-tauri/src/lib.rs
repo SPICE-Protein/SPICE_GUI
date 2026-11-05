@@ -7,6 +7,8 @@ mod gel;
 mod spice;
 mod cloning;
 mod spd;
+mod ai;
+mod mcp;
 
 use spice::AppState;
 
@@ -33,6 +35,12 @@ pub fn run() {
             spd::spd_request,
             spd::spd_put_bytes,
             spd::model_sha256,
+            // AI provider transport (CORS-free fallback)
+            ai::ai_chat_native,
+            ai::ai_get_native,
+            // MCP (stdio) tool discovery and invocation
+            mcp::mcp_list_tools,
+            mcp::mcp_call_tool,
             // ONNX fold (pre-train model)
             spice::infer_fold,
             spice::model_status,

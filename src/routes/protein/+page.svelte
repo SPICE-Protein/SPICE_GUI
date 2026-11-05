@@ -173,6 +173,20 @@
     persistCols();
   }
 
+  // One-step undo for agent-applied protein edits. The gene page uses its
+  // full history stack; this page has no history system, so the Co-Pilot
+  // exposes an explicit undo action for the last agent change.
+  let aiUndoSnapshot = $state<{ seq: string; mutCart: { pos: number; from: string; to: string; score: number }[] } | null>(null);
+  function snapshotAiState() {
+    aiUndoSnapshot = { seq, mutCart: [...mutCart] };
+  }
+  function undoAiChange() {
+    if (!aiUndoSnapshot) return;
+    seq = aiUndoSnapshot.seq;
+    mutCart = aiUndoSnapshot.mutCart;
+    aiUndoSnapshot = null;
+  }
+
   onMount(() => {
     window.addEventListener('resize', fitToWindow);
     try {
@@ -198,9 +212,11 @@
 
     // Register AI Co-Pilot action callbacks
     aiState.onApplyProteinSequence = (newSeq: string) => {
+      snapshotAiState();
       seq = newSeq;
     };
     aiState.onImportMutations = (muts: { pos: number; from: string; to: string; score?: number }[]) => {
+      snapshotAiState();
       muts.forEach(mut => {
         // Natural language is usually 1-based; convert to 0-based for SPICE cart
         const pos = mut.pos > 0 ? mut.pos - 1 : mut.pos;
@@ -216,11 +232,13 @@
       });
       tab = 'mut';
     };
+    aiState.onUndoAiChange = undoAiChange;
 
     return () => {
       window.removeEventListener('resize', fitToWindow);
       aiState.onApplyProteinSequence = null;
       aiState.onImportMutations = null;
+      aiState.onUndoAiChange = null;
     };
   });
 
@@ -258,6 +276,16 @@
   let phaseProgress: ScanProgress | null = $state(null);
   let phaseDemo = $state(false);
   let phaseError: string | null = $state(null);
+
+  // Publish the live workspace state to the AI Co-Pilot. This is the only
+  // place that writes proteinContext; without it the sidebar's "live context"
+  // banner and mutation tool operate on an empty sequence.
+  $effect(() => {
+    aiState.proteinContext.sequence = seq;
+    aiState.proteinContext.env = { ...env };
+    aiState.proteinContext.metrics = stepOut?.metrics ?? null;
+    aiState.proteinContext.phaseScanCount = phase.length;
+  });
   let bifurcationResult = $state<any | null>(null);
 
   let mutBusy = $state(false);

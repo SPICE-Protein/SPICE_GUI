@@ -51,6 +51,7 @@
     Microscope,
     ImagePlus,
     GitBranch,
+    Shapes,
     ImageDown
   } from 'lucide-svelte';
 
@@ -97,6 +98,7 @@
       case 'colony': return m.toolsColonyTitle();
       case 'annotate': return m.toolsAnnotateTitle();
       case 'tree': return m.toolsTreeTitle();
+      case 'figure': return m.toolsFigureTitle();
     }
   }
 
@@ -413,7 +415,7 @@
         {:else}
           <div class="ps-scroll">
             {#each pj.docs as doc (doc.id)}
-              <div class="res-row res-doc" class:res-active={projectStore.activeDocId === doc.id}>
+              <div class="res-row res-doc" data-testid="project-doc-row" data-doc-kind={doc.kind} class:res-active={projectStore.activeDocId === doc.id}>
                 {#if doc.preview}
                   <img class="res-thumb" src={doc.preview} alt="" />
                 {:else}
@@ -432,6 +434,7 @@
                     {:else if doc.kind === 'colony'}<Microscope size={10} />
                     {:else if doc.kind === 'annotate'}<ImagePlus size={10} />
                     {:else if doc.kind === 'tree'}<GitBranch size={10} />
+                    {:else if doc.kind === 'figure'}<Shapes size={10} />
                     {/if}
                   </span>
                 {/if}

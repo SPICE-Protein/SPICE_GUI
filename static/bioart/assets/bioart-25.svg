@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 500 500">
+  <metadata><title>Arrow</title><description>Curved double arrow</description><license>Public Domain</license><creator>Ryan Kissinger</creator><creationDate>2024-09-12T07:51:16-06:00</creationDate><credit>Courtesy of NIAID</credit><illustrationSoftwares>[{'name': 'Adobe Illustrator', 'version': '28.7'}]</illustrationSoftwares><caption>Arrow - Beige</caption><imageColor>Beige</imageColor></metadata><defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #e1c38e;
+        stroke-miterlimit: 10;
+        stroke-width: 22.27px;
+      }
+
+      .cls-2 {
+        fill: #e1c38e;
+      }
+    </style>
+  </defs>
+  
+  <g>
+    <g id="Layer_1">
+      <g>
+        <path class="cls-1" d="M99.08,334.16c64.22-77.07,161.01-134.85,274.39-160.37" />
+        <polygon class="cls-2" points="126.32 344.74 75.09 366.11 82.19 311.06 126.32 344.74" />
+        <polygon class="cls-2" points="370.84 202.83 412.69 166.36 360.19 148.34 370.84 202.83" />
+      </g>
+    </g>
+  </g>
+  </svg>

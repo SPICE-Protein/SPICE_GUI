@@ -171,7 +171,9 @@
     "qpcrPlateLoaded": "孔板图已载入：{n} 孔",
     "qpcrPlateHint": "读取孔板工具导出的 well,sample,group,type,replicate CSV。",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "所选参考靶标缺少 Ct"
+    "qpcrFlagMissingRef": "所选参考靶标缺少 Ct",
+    "sendToFigure": "发送到 Figure Studio",
+    "sendToFigureFailed": "无法发送到 Figure Studio"
   },
   "en": {
     "toolsQpcrTitle": "qPCR analysis",
@@ -345,7 +347,9 @@
     "qpcrPlateLoaded": "Plate map loaded: {n} wells",
     "qpcrPlateHint": "Reads the well,sample,group,type,replicate CSV exported by the plate tool.",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "Selected reference target has no Ct"
+    "qpcrFlagMissingRef": "Selected reference target has no Ct",
+    "sendToFigure": "Send to Figure Studio",
+    "sendToFigureFailed": "Could not send to Figure Studio"
   },
   "ja": {
     "toolsQpcrTitle": "qPCR 解析",
@@ -519,7 +523,9 @@
     "qpcrPlateLoaded": "プレートマップを読み込みました：{n} ウェル",
     "qpcrPlateHint": "プレートツールが出力する well,sample,group,type,replicate CSV を読み込みます。",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "選択した参照ターゲットに Ct がありません"
+    "qpcrFlagMissingRef": "選択した参照ターゲットに Ct がありません",
+    "sendToFigure": "Figure Studio に送信",
+    "sendToFigureFailed": "Figure Studio に送信できませんでした"
   },
   "ko": {
     "toolsQpcrTitle": "qPCR 분석",
@@ -693,7 +699,9 @@
     "qpcrPlateLoaded": "플레이트 맵을 불러왔습니다: {n} 웰",
     "qpcrPlateHint": "플레이트 도구에서 내보낸 well,sample,group,type,replicate CSV를 읽습니다.",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "선택한 참조 타깃에 Ct가 없습니다"
+    "qpcrFlagMissingRef": "선택한 참조 타깃에 Ct가 없습니다",
+    "sendToFigure": "Figure Studio로 보내기",
+    "sendToFigureFailed": "Figure Studio로 보낼 수 없습니다"
   },
   "de": {
     "toolsQpcrTitle": "qPCR-Analyse",
@@ -867,7 +875,9 @@
     "qpcrPlateLoaded": "Plattenkarte geladen: {n} Wells",
     "qpcrPlateHint": "Liest die vom Plattenwerkzeug exportierte CSV mit well,sample,group,type,replicate.",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "Ausgewähltes Referenzziel hat keinen Ct"
+    "qpcrFlagMissingRef": "Ausgewähltes Referenzziel hat keinen Ct",
+    "sendToFigure": "An Figure Studio senden",
+    "sendToFigureFailed": "Konnte nicht an Figure Studio senden"
   },
   "nl": {
     "toolsQpcrTitle": "qPCR-analyse",
@@ -1041,7 +1051,9 @@
     "qpcrPlateLoaded": "Plaatkaart geladen: {n} wells",
     "qpcrPlateHint": "Leest de door de plaatmodule geëxporteerde CSV met well,sample,group,type,replicate.",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "Geselecteerd referentietarget heeft geen Ct"
+    "qpcrFlagMissingRef": "Geselecteerd referentietarget heeft geen Ct",
+    "sendToFigure": "Naar Figure Studio sturen",
+    "sendToFigureFailed": "Konnte niet naar Figure Studio sturen"
   },
   "sv": {
     "toolsQpcrTitle": "qPCR-analys",
@@ -1215,6 +1227,8 @@
     "qpcrPlateLoaded": "Plattkarta laddad: {n} brunnar",
     "qpcrPlateHint": "Läser CSV-filen well,sample,group,type,replicate som plattverktyget exporterar.",
     "qpcrFlagMissingRefShort": "REF",
-    "qpcrFlagMissingRef": "Valt referensmål saknar Ct"
+    "qpcrFlagMissingRef": "Valt referensmål saknar Ct",
+    "sendToFigure": "Skicka till Figure Studio",
+    "sendToFigureFailed": "Det gick inte att skicka till Figure Studio"
   }
 }

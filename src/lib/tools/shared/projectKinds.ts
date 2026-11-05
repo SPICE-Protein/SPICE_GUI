@@ -15,7 +15,8 @@ export const TOOL_DOC_META: Record<ToolDocKind, ToolDocMeta> = {
   plate: { route: '/tools/plate', label: 'Plate layout' },
   colony: { route: '/tools/colony', label: 'Colony counter' },
   annotate: { route: '/tools/annotate', label: 'Image annotator' },
-  tree: { route: '/tools/tree', label: 'Phylogenetic tree' }
+  tree: { route: '/tools/tree', label: 'Phylogenetic tree' },
+  figure: { route: '/tools/figure', label: 'Figure Studio' }
 };
 
 export function toolRoute(kind: ToolDocKind): string {

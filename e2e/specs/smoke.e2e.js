@@ -23,7 +23,7 @@ describe('SPICE GUI desktop smoke', () => {
 
   it('opens on the welcome page', async () => {
     await expectTestId('welcome-page');
-    await expect(browser).toHaveTitle(/SPICE/i);
+    expect(await browser.getTitle()).toBe('SPICE GUI');
   });
 
   it('navigates to every top-level workspace', async () => {
@@ -65,7 +65,7 @@ describe('SPICE GUI desktop smoke', () => {
     await goNav('tools');
     await expectTestId('tools-page');
 
-    const tools = ['gel', 'blot', 'qpcr', 'plate', 'colony', 'annotate', 'tree'];
+    const tools = ['gel', 'blot', 'qpcr', 'plate', 'colony', 'annotate', 'tree', 'figure'];
     for (const id of tools) {
       const card = await $(`[data-testid="tool-card-${id}"]`);
       await card.waitForClickable({ timeout: 20000 });

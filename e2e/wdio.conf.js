@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startSpdMock, stopSpdMock } from './spdMock.js';
+import { AI_MOCK_URL, startAiMock, stopAiMock } from './aiMock.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -24,16 +25,22 @@ const appBinaryPath =
 // One local SPD stand-in per run. Specs point the app at SPD_MOCK_URL, so the
 // real client + Rust bridge execute against stable fixtures.
 let spdMockServer = null;
+let aiMockServer = null;
 
 export const config = {
   // Hooks live in the config object itself: the CLI launcher reads them from
   // the parsed config, not from bare module exports.
   onPrepare: async () => {
     spdMockServer = await startSpdMock();
+    aiMockServer = await startAiMock();
+    // Copilot specs point the app at this endpoint after each localStorage reset.
+    process.env.SPICE_AI_MOCK_URL = AI_MOCK_URL;
   },
   onComplete: async () => {
     await stopSpdMock(spdMockServer);
+    await stopAiMock(aiMockServer);
     spdMockServer = null;
+    aiMockServer = null;
   },
 
   runner: 'local',

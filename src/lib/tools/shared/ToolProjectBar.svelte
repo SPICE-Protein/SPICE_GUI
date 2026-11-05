@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Shared project strip for the seven bench tools. A tool supplies four
+  // Shared project strip for the bench tools. A tool supplies four
   // snapshots: payload, name, preview and summary; this component handles
   // capture (project open, tool not active) and write-back (tool active).
   import { goto } from '$app/navigation';
@@ -92,14 +92,14 @@
     </span>
     <span class="tpb-spacer"></span>
     {#if active}
-      <button class="pix-btn tpb-btn" onclick={save} disabled={busy}>
+      <button class="pix-btn tpb-btn" data-testid="tool-project-save" onclick={save} disabled={busy}>
         <Save size={12} /> {m.projectBannerSaveBtn()}
       </button>
-      <button class="pix-btn tpb-btn" onclick={returnToHub}>
+      <button class="pix-btn tpb-btn" data-testid="tool-project-return" onclick={returnToHub}>
         <CornerDownLeft size={12} /> {m.projectBannerReturnBtn()}
       </button>
     {:else}
-      <button class="pix-btn tpb-btn" onclick={capture} disabled={busy}>
+      <button class="pix-btn tpb-btn" data-testid="tool-project-capture" onclick={capture} disabled={busy}>
         <Save size={12} /> {m.projectBannerSaveBtn()}
       </button>
     {/if}

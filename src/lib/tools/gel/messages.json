@@ -19,7 +19,9 @@
     "gelBatchClear": "清空列表",
     "gelBatchNote": "每张图像生成图像 PNG、项目 JSON 和一行汇总 CSV。",
     "gelBatchImages": "{n} 张图像",
-    "gelBatchNoImages": "选择图像或文件夹开始。"
+    "gelBatchNoImages": "选择图像或文件夹开始。",
+    "sendToFigure": "发送到 Figure Studio",
+    "sendToFigureFailed": "无法发送到 Figure Studio"
   },
   "en": {
     "gelReproBundle": "Export reproducible bundle",
@@ -41,7 +43,9 @@
     "gelBatchClear": "Clear list",
     "gelBatchNote": "Each image gets a figure PNG, a project JSON and one summary CSV row.",
     "gelBatchImages": "{n} images",
-    "gelBatchNoImages": "Choose images or a folder to start."
+    "gelBatchNoImages": "Choose images or a folder to start.",
+    "sendToFigure": "Send to Figure Studio",
+    "sendToFigureFailed": "Could not send to Figure Studio"
   },
   "ja": {
     "gelReproBundle": "再現可能バンドルをエクスポート",
@@ -63,7 +67,9 @@
     "gelBatchClear": "リストをクリア",
     "gelBatchNote": "各画像に図の PNG、プロジェクト JSON、集計 CSV の 1 行を保存します。",
     "gelBatchImages": "{n} 枚の画像",
-    "gelBatchNoImages": "画像またはフォルダーを選択して開始します。"
+    "gelBatchNoImages": "画像またはフォルダーを選択して開始します。",
+    "sendToFigure": "Figure Studio に送信",
+    "sendToFigureFailed": "Figure Studio に送信できませんでした"
   },
   "ko": {
     "gelReproBundle": "재현 가능 번들 내보내기",
@@ -85,7 +91,9 @@
     "gelBatchClear": "목록 지우기",
     "gelBatchNote": "각 이미지에 그림 PNG, 프로젝트 JSON, 요약 CSV 한 행을 저장합니다.",
     "gelBatchImages": "이미지 {n}장",
-    "gelBatchNoImages": "이미지나 폴더를 선택하여 시작하세요."
+    "gelBatchNoImages": "이미지나 폴더를 선택하여 시작하세요.",
+    "sendToFigure": "Figure Studio로 보내기",
+    "sendToFigureFailed": "Figure Studio로 보낼 수 없습니다"
   },
   "de": {
     "gelReproBundle": "Reproduzierbares Paket exportieren",
@@ -107,7 +115,9 @@
     "gelBatchClear": "Liste leeren",
     "gelBatchNote": "Jedes Bild erhält ein Abbildungs-PNG, ein Projekt-JSON und eine Zeile in der Zusammenfassungs-CSV.",
     "gelBatchImages": "{n} Bilder",
-    "gelBatchNoImages": "Bilder oder einen Ordner auswählen, um zu starten."
+    "gelBatchNoImages": "Bilder oder einen Ordner auswählen, um zu starten.",
+    "sendToFigure": "An Figure Studio senden",
+    "sendToFigureFailed": "Konnte nicht an Figure Studio senden"
   },
   "nl": {
     "gelReproBundle": "Reproduceerbaar pakket exporteren",
@@ -129,7 +139,9 @@
     "gelBatchClear": "Lijst wissen",
     "gelBatchNote": "Elke afbeelding krijgt een figuur-PNG, een project-JSON en één rij in de samenvattings-CSV.",
     "gelBatchImages": "{n} afbeeldingen",
-    "gelBatchNoImages": "Kies afbeeldingen of een map om te beginnen."
+    "gelBatchNoImages": "Kies afbeeldingen of een map om te beginnen.",
+    "sendToFigure": "Naar Figure Studio sturen",
+    "sendToFigureFailed": "Konnte niet naar Figure Studio sturen"
   },
   "sv": {
     "gelReproBundle": "Exportera reproducerbart paket",
@@ -151,6 +163,8 @@
     "gelBatchClear": "Rensa listan",
     "gelBatchNote": "Varje bild får en figur-PNG, en projekt-JSON och en rad i sammanfattnings-CSV:n.",
     "gelBatchImages": "{n} bilder",
-    "gelBatchNoImages": "Välj bilder eller en mapp för att börja."
+    "gelBatchNoImages": "Välj bilder eller en mapp för att börja.",
+    "sendToFigure": "Skicka till Figure Studio",
+    "sendToFigureFailed": "Det gick inte att skicka till Figure Studio"
   }
 }

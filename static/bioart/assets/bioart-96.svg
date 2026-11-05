@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" id="CurvedArrow0001-beige" x="0px" y="0px" viewBox="0 0 500 500" style="enable-background:new 0 0 500 500;" xml:space="preserve">
+<metadata><title>Curved Arrow</title><description>Curved brown arrow</description><license>Public Domain</license><creator>Ryan Kissinger</creator><creationDate>2024-08-28T15:15:25-06:00</creationDate><credit>Courtesy of NIAID</credit><illustrationSoftwares>[{'name': 'Adobe Illustrator', 'version': '28.6'}]</illustrationSoftwares><caption>Curved Arrow - Beige</caption><imageColor>Beige</imageColor></metadata><style type="text/css">
+	.st0{filter:url(#Adobe_OpacityMaskFilter);}
+	.st1{fill:url(#SVGID_00000096034799723018606300000015675137191366018692_);}
+	.st2{mask:url(#SVGID_1_);fill:#E1C48F;stroke:#002434;stroke-width:4.6104;stroke-miterlimit:10;}
+</style>
+<defs>
+	<filter id="Adobe_OpacityMaskFilter" filterUnits="userSpaceOnUse" x="95.53" y="103.6" width="279.89" height="344.29">
+		<feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" />
+	</filter>
+</defs>
+<mask maskUnits="userSpaceOnUse" x="95.53" y="103.6" width="279.89" height="344.29" id="SVGID_1_">
+	<g class="st0">
+		
+			<linearGradient id="SVGID_00000125601962035415401360000004128710562217589422_" gradientUnits="userSpaceOnUse" x1="71.5487" y1="221.4686" x2="407.7214" y2="221.4686" gradientTransform="matrix(-0.4816 1.0348 -0.9066 -0.4219 547.5765 99.9078)">
+			<stop offset="0.6257" style="stop-color:#FFFFFF" />
+			<stop offset="1" style="stop-color:#000000" />
+		</linearGradient>
+		<polygon style="fill:url(#SVGID_00000125601962035415401360000004128710562217589422_);" points="-0.78,357.98 161.12,10.12     463.55,150.87 301.65,498.73   " />
+	</g>
+</mask>
+<path class="st2" d="M293.9,178.85c-115.59,94.79-150.31,264.54-150.66,266.33l-45-8.89c1.61-8.12,39.76-194.36,173.43-298.39  l2.59-1.83l-17.2-30.06l114.3,3.23l-59.94,97.38l-15.58-28.83L293.9,178.85z" />
+</svg>

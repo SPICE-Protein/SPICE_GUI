@@ -28,7 +28,7 @@ pub async fn save_export(
     }
 
     let picked = dialog
-        .add_filter("SPICE Formats", &["spiceg", "spicep", "spiceproj", "mmcif", "cif", "png", "txt"])
+        .add_filter("SPICE Formats", &["spiceg", "spicep", "spiceproj", "spicefig", "mmcif", "cif", "svg", "png", "tif", "tiff", "pdf", "pptx", "json", "md", "txt"])
         .set_file_name(&default_name)
         .blocking_save_file();
 
