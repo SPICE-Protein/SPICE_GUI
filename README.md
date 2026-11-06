@@ -6,6 +6,8 @@ SPICE (Sequence-Protein Interaction under Conditional Environments) GUI is a loc
 
 Built with SvelteKit (Svelte 5), Tauri v2, Mol\*, and a pixel-art UI theme. Fully internationalized in seven languages.
 
+**Documentation:** [User manual](docs/README.md) — task-oriented guides for every workspace and bench tool, with screenshots.
+
 ## Screenshots
 
 **Gene editor** — circular plasmid map, restriction enzymes, cut sites and sequence view in one screen.
