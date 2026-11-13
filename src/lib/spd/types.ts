@@ -220,4 +220,59 @@ export interface SpdArtifactInput {
 export interface SpdArtifactReceipt { artifactId: string; created: boolean; status?: string; completedAt?: number }
 export interface SpdArtifactRecord { id: string; kind?: string; mediaType?: string; byteLength?: number; sha256?: string; status?: string; [key: string]: unknown }
 
+/** ───── BioBrick parts (GET/POST /biobricks) ─────
+ *  List rows are deliberately short; the sequence exists only on the detail
+ *  record (GET /biobricks/{id} returns { biobrick, vectors }). Part types are
+ *  the server's fixed vocabulary; `other` is the only lossless fallback. */
+export interface SpdBiobrickSummary {
+  id: string; name: string; partType: string; length?: number;
+  description?: string | null; createdAt?: number | string | null;
+  [key: string]: unknown;
+}
+export interface SpdBiobrickRecord extends SpdBiobrickSummary {
+  sequence: string; sha256?: string; metadata?: unknown; categories?: string[];
+  parameters?: unknown; crossReferences?: unknown;
+}
+export interface SpdBiobrickVectorLink {
+  id: string; name?: string; role?: string | null; linkedAt?: number | string | null;
+}
+export interface SpdBiobrickDetail { biobrick: SpdBiobrickRecord; vectors: SpdBiobrickVectorLink[] }
+/** POST /biobricks body. `origin` defaults to submission; batch-import is for
+ *  the SPD portal's file importer, not the workbench. */
+export interface SpdBiobrickInput {
+  name: string; partType: string; sequence: string;
+  description?: string; metadata?: unknown; categories?: string[];
+  parameters?: unknown; crossReferences?: unknown;
+  origin?: 'submission' | 'batch-import';
+}
+/** POST /biobricks receipt is bare: { id, name, partType, sha256, length, created }. */
+export interface SpdBiobrickReceipt {
+  id: string; name: string; partType: string; sha256?: string;
+  length?: number; created?: boolean;
+}
+
+/** ───── Personal workspace feed (GET /user/me/activity) ─────
+ *  Authored records across every catalog table, with the lifecycle status the
+ *  source table carries (null when it has none). `imports` are batch-landed
+ *  rows kept separate so the portal can show them in their own tab. */
+export interface SpdActivitySubmission {
+  id: string; entityType: string; title: string;
+  createdAt?: number | string | null; status?: string | null;
+}
+export interface SpdActivityAction {
+  id: string; entityType: string; status?: string | null; validationType?: string;
+  targetFoldId?: string; revisionNumber?: number; updatedAt?: number | string | null;
+}
+export interface SpdActivityWikiEdit {
+  id: string; entityType: string; entityId?: string; title?: string;
+  revisionNumber?: number; updatedAt?: number | string | null;
+}
+export interface SpdActivity {
+  submissions: SpdActivitySubmission[];
+  imports: SpdActivitySubmission[];
+  needsAction: SpdActivityAction[];
+  inReview: SpdActivityAction[];
+  wikiEdits: SpdActivityWikiEdit[];
+}
+
 export interface SpdClientOptions { baseUrl?: string; token?: string }

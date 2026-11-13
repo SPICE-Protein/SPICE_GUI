@@ -10,6 +10,9 @@ export const SPD_MOCK_TOKEN = 'spd_e2e';
 
 const RNA = 'AUGGUGAGCAAGGGCGAGGAGCUGUUCACCGGGGUGGUGCCCAUCCUGGUCGAGCUGAACGGCAAGGACUUCAUCUGA';
 const GENE_ID = 'spd:gene:e2e00000000000000000000000000001';
+const BIOBRICK_ID = 'spd:biobrick:e2e00000000000000000000000001';
+export const BIOBRICK_SEQ = 'TTGACAGCTAGCTCAGTCCTAGGTATAATGCTAGC';
+const VECTOR_ID = 'spd:vector:e2e0000000000000000000000000001';
 
 const geneRow = {
   id: GENE_ID,
@@ -38,6 +41,29 @@ const geneDetail = {
   createdAt: 1790000000,
   updatedAt: 1790000000,
 };
+
+const biobrickRow = {
+  id: BIOBRICK_ID,
+  name: 'BBa_E2E_promoter',
+  partType: 'promoter',
+  length: BIOBRICK_SEQ.length,
+  description: 'E2E constitutive promoter part',
+  createdAt: 1790000100,
+};
+
+const biobrickDetail = {
+  ...biobrickRow,
+  sequence: BIOBRICK_SEQ,
+  sha256: 'sha256:e2e',
+  metadata: { chassis: 'E. coli' },
+  categories: ['promoter'],
+  parameters: { strength: 'strong' },
+  crossReferences: [{ source: 'igem', id: 'BBa_E2E' }],
+};
+
+const biobrickVectors = [
+  { id: VECTOR_ID, name: 'pSB1C3', role: 'backbone', linkedAt: 1790000200 },
+];
 
 const regions = [
   {
@@ -118,10 +144,60 @@ async function route(req, res) {
   if (path === '/api/v1/search' && req.method === 'POST') {
     const body = await readBody(req);
     const q = String(body.query || '').toLowerCase();
+    if (body.entityType === 'biobrick') {
+      const rows = [biobrickRow].filter((row) =>
+        !q || row.name.toLowerCase().includes(q) || String(row.description).toLowerCase().includes(q),
+      );
+      return send(res, 200, ok(rows));
+    }
     const rows = [geneRow].filter((row) =>
       !q || row.name.toLowerCase().includes(q) || row.symbol.toLowerCase().includes(q),
     );
     return send(res, 200, ok(rows));
+  }
+
+  if (path === '/api/v1/biobricks' && req.method === 'GET') {
+    const partType = url.searchParams.get('part_type');
+    const rows = partType ? [biobrickRow].filter((row) => row.partType === partType) : [biobrickRow];
+    return send(res, 200, ok({ items: rows }));
+  }
+
+  if (path === '/api/v1/biobricks' && req.method === 'POST') {
+    if (req.headers.authorization !== `Bearer ${SPD_MOCK_TOKEN}`) {
+      return send(res, 401, { data: null, error: { code: 'UNAUTHORIZED', message: 'login required', fields: null } });
+    }
+    const body = await readBody(req);
+    return send(res, 200, {
+      id: 'spd:biobrick:e2e-created',
+      name: body.name,
+      partType: body.partType,
+      sha256: 'sha256:e2e-created',
+      length: String(body.sequence || '').length,
+      created: true,
+    });
+  }
+
+  const biobrickMatch = path.match(/^\/api\/v1\/biobricks\/([^/]+)$/);
+  if (biobrickMatch) {
+    return send(res, 200, ok({ biobrick: biobrickDetail, vectors: biobrickVectors }));
+  }
+
+  if (path === '/api/v1/user/me/activity') {
+    if (req.headers.authorization !== `Bearer ${SPD_MOCK_TOKEN}`) {
+      return send(res, 401, { data: null, error: { code: 'UNAUTHORIZED', message: 'login required', fields: null } });
+    }
+    return send(res, 200, {
+      submissions: [
+        { id: BIOBRICK_ID, entityType: 'biobrick', title: biobrickRow.name, createdAt: 1790000100, status: null },
+        { id: GENE_ID, entityType: 'gene', title: 'eGFP', createdAt: 1790000000, status: null },
+        { id: VECTOR_ID, entityType: 'vector', title: 'pSB1C3', createdAt: 1789999900, status: null },
+        { id: 'spd:fold:e2e', entityType: 'fold', title: 'spd:fold:e2e', createdAt: 1789999800, status: null },
+      ],
+      imports: [],
+      needsAction: [],
+      inReview: [],
+      wikiEdits: [],
+    });
   }
 
   const regionMatch = path.match(/^\/api\/v1\/genes\/([^/]+)\/regions$/);
@@ -191,6 +267,10 @@ export function startSpdMock() {
 export function stopSpdMock(server) {
   return new Promise((resolve) => {
     if (!server) return resolve();
+    // The app keeps HTTP keep-alive sockets open, and `close()` waits for them.
+    // The app is still running when this hook fires, so without the forced
+    // teardown the whole run would hang here after every test has passed.
+    server.closeAllConnections?.();
     server.close(() => resolve());
   });
 }

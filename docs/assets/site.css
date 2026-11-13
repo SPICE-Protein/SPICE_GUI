@@ -1,0 +1,772 @@
+/* SPICE GUI documentation theme.
+   Built on docsify's vue.css and tuned to the application's pix palette:
+   near-black panels, ginger accent, cyan and green support colours. */
+
+:root {
+  --theme-color: #ff9f1c;
+
+  --site-bg: #f6f7f9;
+  --site-paper: #ffffff;
+  --site-ink: #1b2230;
+  --site-body: #2b3444;
+  --site-muted: #5d6a7e;
+  --site-line: #e4e8ef;
+  --site-line-soft: #eef1f6;
+  --site-accent: #c86f00;
+  --site-accent-soft: #fff4e2;
+
+  --sidebar-bg: #0b0e14;
+  --sidebar-panel: #121624;
+  --sidebar-line: #1e2634;
+  --sidebar-fg: #a9b4c7;
+  --sidebar-fg-strong: #f3f7ff;
+  --sidebar-muted: #66758e;
+
+  --code-bg: #0f1420;
+  --code-line: #1c2637;
+  --code-fg: #d8e2f2;
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+html,
+body {
+  background: var(--site-bg);
+}
+
+body {
+  color: var(--site-body);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+::selection {
+  background: rgba(255, 159, 28, 0.28);
+}
+
+/* ------------------------------------------------------------------ */
+/* Sidebar                                                             */
+/* ------------------------------------------------------------------ */
+
+.sidebar {
+  width: 300px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-line);
+  padding-top: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #2a3446 transparent;
+}
+
+.sidebar .sidebar-nav {
+  line-height: 1.5;
+  padding: 6px 0 32px;
+}
+
+/* The visible brand lives at the top of _sidebar.md; this h1 only supplies
+   the site name used in document titles. */
+.sidebar > .app-name {
+  display: none;
+}
+
+.sidebar ul {
+  margin: 0;
+}
+
+.sidebar ul li {
+  margin: 1px 10px;
+  list-style: none;
+}
+
+/* Docsify wraps every sidebar entry in <p>. Only the plain-text group labels
+   (rendered as <strong>) get the uppercase section style; links keep their
+   normal case. */
+.sidebar ul li > p {
+  margin: 0;
+}
+
+.sidebar ul li > p > strong,
+.sidebar ul li > strong {
+  display: block;
+  margin: 18px 12px 7px;
+  color: var(--sidebar-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+.sidebar ul li a {
+  display: block;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: var(--sidebar-fg);
+  font-size: 13.5px;
+  text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.sidebar ul li a:hover {
+  color: var(--sidebar-fg-strong);
+  background: rgba(255, 255, 255, 0.05);
+  text-decoration: none;
+}
+
+.sidebar ul li.active > a {
+  color: var(--sidebar-fg-strong);
+  background: rgba(255, 159, 28, 0.13);
+  box-shadow: inset 2px 0 0 var(--theme-color);
+}
+
+.sidebar ul li ul {
+  padding-left: 10px;
+  margin: 2px 0 6px;
+}
+
+.sidebar ul li ul li {
+  margin: 0;
+}
+
+.sidebar ul li ul li a {
+  padding: 4px 12px;
+  color: #8d9ab0;
+  font-size: 12.5px;
+}
+
+.sidebar ul li ul li.active > a {
+  color: var(--theme-color);
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: #232c3c;
+  border-radius: 8px;
+}
+
+/* Brand block rendered from _sidebar.md */
+
+.doc-brand {
+  padding: 20px 18px 16px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--sidebar-line);
+}
+
+.doc-brand-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  text-decoration: none;
+}
+
+.doc-brand-link:hover {
+  text-decoration: none;
+}
+
+.doc-brand-link img {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 0 16px rgba(76, 214, 255, 0.14);
+}
+
+.doc-brand-text {
+  line-height: 1.15;
+}
+
+.doc-brand-text strong {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 2.4px;
+}
+
+.doc-brand-sub {
+  display: block;
+  margin: 5px 0 0 49px;
+  color: var(--sidebar-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ */
+/* Search (plugin renders it outside the sidebar; the hook in          */
+/* index.html moves it inside so it sits on the dark panel)            */
+/* ------------------------------------------------------------------ */
+
+.search {
+  margin: 0;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--sidebar-line);
+}
+
+.search input {
+  width: 100%;
+  padding: 8px 11px;
+  background: var(--sidebar-panel);
+  border: 1px solid #242d3d;
+  border-radius: 7px;
+  color: #e8eef8;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search input::placeholder {
+  color: #6c7b93;
+}
+
+.search input:focus {
+  border-color: var(--theme-color);
+  box-shadow: 0 0 0 3px rgba(255, 159, 28, 0.14);
+}
+
+.search .clear-button {
+  color: #6c7b93;
+}
+
+.search .clear-button svg circle {
+  fill: #3a465c;
+}
+
+.search .results-panel {
+  margin-top: 8px;
+  padding: 2px 2px 6px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
+
+.search .matching-post {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--sidebar-line);
+}
+
+.search .matching-post:last-child {
+  border-bottom: 0;
+}
+
+.search a {
+  color: var(--sidebar-fg);
+}
+
+.search .matching-post:hover a {
+  color: #ffffff;
+}
+
+.search h2 {
+  margin: 4px 0;
+  color: #e8eef8;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.search p {
+  margin: 2px 0 0;
+  color: #7f8da4;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.search p.empty {
+  color: #7f8da4;
+  font-size: 12.5px;
+}
+
+.search .search-keyword {
+  color: var(--theme-color);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.sidebar-toggle {
+  width: auto;
+  padding: 14px 16px;
+  background: var(--sidebar-bg);
+  border-radius: 0 8px 0 0;
+}
+
+.sidebar-toggle:hover {
+  background: var(--sidebar-panel);
+}
+
+.sidebar-toggle span {
+  background-color: var(--theme-color);
+}
+
+@media screen and (min-width: 769px) {
+  .sidebar-toggle {
+    width: 284px;
+    border-radius: 0;
+  }
+
+  body.close .sidebar-toggle {
+    width: auto;
+    border-radius: 0 8px 0 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Reading area                                                        */
+/* ------------------------------------------------------------------ */
+
+.content {
+  left: 300px;
+  background: var(--site-paper);
+}
+
+@media screen and (min-width: 769px) {
+  .content {
+    padding-top: 0;
+  }
+}
+
+.markdown-section {
+  max-width: 900px;
+  padding: 54px 52px 88px;
+  color: var(--site-body);
+  font-family: var(--font-sans);
+  font-size: 15.5px;
+  line-height: 1.75;
+}
+
+.markdown-section p,
+.markdown-section li {
+  line-height: 1.75;
+}
+
+.markdown-section > :first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-section h1,
+.markdown-section h2,
+.markdown-section h3,
+.markdown-section h4,
+.markdown-section h5 {
+  color: #111827;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+
+.markdown-section h1 {
+  margin: 0 0 1.3rem;
+  font-size: 2.05rem;
+  font-weight: 800;
+}
+
+.markdown-section h2 {
+  margin: 2.9rem 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--site-line);
+  font-size: 1.45rem;
+}
+
+.markdown-section h3 {
+  margin: 2.1rem 0 0.7rem;
+  font-size: 1.16rem;
+}
+
+.markdown-section h4 {
+  margin: 1.7rem 0 0.6rem;
+  font-size: 1rem;
+}
+
+.markdown-section h5 {
+  margin: 1.4rem 0 0.5rem;
+  color: var(--site-muted);
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.markdown-section strong {
+  color: #111827;
+  font-weight: 700;
+}
+
+.markdown-section a {
+  color: var(--site-accent);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(200, 111, 0, 0.28);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.markdown-section a:hover {
+  color: #a45a00;
+  border-bottom-color: currentColor;
+  text-decoration: none;
+}
+
+.markdown-section hr {
+  margin: 2.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--site-line);
+}
+
+.markdown-section ul,
+.markdown-section ol {
+  padding-left: 1.35rem;
+}
+
+.markdown-section li {
+  margin: 0.3em 0;
+}
+
+.markdown-section li::marker {
+  color: #97a2b3;
+}
+
+.markdown-section blockquote {
+  margin: 1.6em 0;
+  padding: 0.9em 1.2em;
+  background: var(--site-accent-soft);
+  border-left: 3px solid var(--theme-color);
+  border-radius: 0 8px 8px 0;
+  color: #6a522f;
+}
+
+.markdown-section blockquote p {
+  margin: 0.25em 0;
+  font-weight: 500;
+}
+
+/* Screenshots */
+
+.markdown-section img:not(.emoji) {
+  display: block;
+  max-width: 100%;
+  margin: 1.6em auto;
+  border: 1px solid var(--site-line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(17, 24, 39, 0.09);
+  cursor: zoom-in;
+}
+
+/* Tables */
+
+.markdown-section table {
+  display: block;
+  width: 100%;
+  margin: 1.5em 0;
+  overflow-x: auto;
+  border: 1px solid var(--site-line);
+  border-radius: 9px;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.markdown-section th {
+  padding: 9px 14px;
+  background: #f5f7fa;
+  border: 0;
+  border-bottom: 1px solid var(--site-line);
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.markdown-section td {
+  padding: 9px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--site-line-soft);
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.markdown-section tr {
+  border: 0;
+}
+
+.markdown-section tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown-section tr:nth-child(2n) {
+  background: #fafbfd;
+}
+
+/* Inline code and code blocks */
+
+.markdown-section code {
+  padding: 2px 5px;
+  background: #f2f4f8;
+  border: 1px solid var(--site-line);
+  border-radius: 5px;
+  color: #9a4a00;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.markdown-section pre {
+  margin: 1.5em 0;
+  padding: 17px 20px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-line);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.markdown-section pre > code {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--code-fg);
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
+
+.markdown-section pre:after {
+  top: 9px;
+  right: 14px;
+  color: #5f6f8a;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.docsify-copy-code-button {
+  top: 7px;
+  right: 10px;
+  padding: 0.5em 0.7em;
+  background: #1a2332;
+  border: 1px solid #2a3648;
+  border-radius: 6px;
+  color: #9fb0c9;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  opacity: 0;
+}
+
+pre:hover .docsify-copy-code-button,
+.docsify-copy-code-button:focus {
+  opacity: 1;
+}
+
+.docsify-copy-code-button:hover {
+  color: #ffffff;
+  border-color: #3a4a63;
+}
+
+/* Tips and warnings written as blockquotes or docsify tip classes */
+
+.markdown-section p.tip {
+  padding: 12px 18px;
+  background: var(--site-accent-soft);
+  border-left: 4px solid var(--theme-color);
+  border-radius: 0 8px 8px 0;
+  color: #6a522f;
+}
+
+.markdown-section p.warn {
+  padding: 12px 18px;
+  background: #fdeeee;
+  border-left: 4px solid #e04f4f;
+  border-radius: 0 8px 8px 0;
+  color: #7d2a2a;
+}
+
+/* Heading anchors */
+
+.anchor span {
+  color: #111827;
+}
+
+.anchor:hover {
+  text-decoration: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Top navigation                                                      */
+/* ------------------------------------------------------------------ */
+
+.app-nav {
+  margin: 20px 28px 0 0;
+}
+
+.app-nav a {
+  color: var(--site-muted);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.app-nav a:hover,
+.app-nav a.active {
+  color: var(--site-accent);
+}
+
+.app-nav a.active {
+  border-bottom: 2px solid var(--theme-color);
+}
+
+.app-nav li ul {
+  border-color: var(--site-line);
+  border-radius: 9px;
+  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.12);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pagination                                                          */
+/* ------------------------------------------------------------------ */
+
+.docsify-pagination-container {
+  margin: 4.5em 0 1em;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--site-line);
+}
+
+.pagination-item {
+  margin-top: 1.4em;
+}
+
+.pagination-item a {
+  display: block;
+  padding: 12px 16px;
+  border: 1px solid var(--site-line);
+  border-radius: 9px;
+  color: var(--site-ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pagination-item a:hover {
+  border-color: var(--theme-color);
+  box-shadow: 0 6px 18px rgba(255, 159, 28, 0.14);
+  text-decoration: none;
+}
+
+.pagination-item-label {
+  color: var(--site-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The plugin dims the "previous" card until hover; both cards should read as
+   available navigation. */
+.docsify-pagination-container
+  .pagination-item:not(:last-child)
+  a
+  .pagination-item-label,
+.docsify-pagination-container
+  .pagination-item:not(:last-child)
+  a
+  .pagination-item-title,
+.docsify-pagination-container
+  .pagination-item:not(:last-child)
+  a
+  .pagination-item-subtitle {
+  opacity: 1;
+}
+
+.pagination-item-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.pagination-item-subtitle {
+  color: var(--site-muted);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Progress bar, loading state, medium-zoom                            */
+/* ------------------------------------------------------------------ */
+
+.progress {
+  height: 3px;
+  background: var(--theme-color);
+}
+
+#app {
+  color: var(--site-muted);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+.medium-zoom-overlay {
+  background: rgba(11, 14, 20, 0.92) !important;
+}
+
+.medium-zoom-image--opened {
+  border-radius: 6px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive                                                          */
+/* ------------------------------------------------------------------ */
+
+@media screen and (max-width: 768px) {
+  .markdown-section {
+    max-width: 100%;
+    padding: 34px 20px 64px;
+    font-size: 15px;
+  }
+
+  .markdown-section h1 {
+    font-size: 1.7rem;
+  }
+
+  .markdown-section h2 {
+    font-size: 1.28rem;
+  }
+
+  .app-nav {
+    margin: 16px 18px 0 0;
+  }
+
+  .app-nav a {
+    font-size: 13px;
+  }
+
+  .docsify-pagination-container {
+    display: block;
+  }
+
+  .pagination-item--next {
+    margin-top: 1em;
+  }
+}
+
+@media print {
+  .sidebar,
+  .sidebar-toggle,
+  .app-nav,
+  .search,
+  .docsify-pagination-container,
+  .docsify-copy-code-button {
+    display: none !important;
+  }
+
+  .content {
+    left: 0;
+  }
+
+  .markdown-section {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .markdown-section a {
+    color: inherit;
+  }
+}

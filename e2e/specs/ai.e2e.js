@@ -6,6 +6,7 @@
 
 import {
   resetApp,
+  reloadApp,
   goNav,
   expectTestId,
   clickTestId,
@@ -25,7 +26,7 @@ async function configureCopilot(agentEnabled) {
     }));
     localStorage.setItem('spice_ai_agent_enabled', enabled ? '1' : '0');
   }, AI_URL, agentEnabled);
-  await browser.refresh();
+  await reloadApp();
   await expectTestId('nav-home');
 }
 

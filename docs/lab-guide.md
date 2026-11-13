@@ -1,6 +1,6 @@
 # SPICE GUI: Laboratory Guide Overview
 
-**Applies to:** SPICE GUI v0.0.9 (Windows, macOS, Linux; Android build available)
+**Applies to:** SPICE GUI v0.1.0 (Windows, macOS, Linux; Android build available)
 
 **Audience:** bench scientists, lab managers, and students who need to design constructs, record experiments, analyse gels and blots, and assemble figures without sending data to a server.
 
@@ -126,6 +126,6 @@ Gene Editor shortcuts are editable in **Settings → Keymap Settings**. `Mod` me
 - [Troubleshooting](troubleshooting.md) for models, detection, exports, projects, ELN, SPD, and AI.
 - [Data and safety](data-and-safety.md) for privacy, credentials, and backups.
 - The [releases page](https://github.com/SPICE-Protein/SPICE_GUI/releases) for installers and release notes.
-- The [project README](../README.md) for architecture and development setup.
+- The [project README](https://github.com/SPICE-Protein/SPICE_GUI#readme) for architecture and development setup.
 
 When reporting a problem, include the app version, platform, menu path, input type and size, the exact error text, and whether the example data reproduces it. Do not attach confidential sequences or unpublished images to a public issue.

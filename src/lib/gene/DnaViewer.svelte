@@ -71,12 +71,26 @@
   let customTaxId = $state('36329');
   let log: string[] = $state([]);
 
-  // System mobile/pad and force virtual keyboard detection
+  // System mobile/pad and force virtual keyboard detection.
+  // `keyboardOverride` comes from the keyboard button in the sequence toolbar;
+  // null means "follow the automatic/platform default".
   let isMobileOrPad = $state(false);
   let forceVirtualKeyboard = $state(false);
+  let keyboardOverride = $state<boolean | null>(null);
   const isVirtualKeyboardVisible = $derived(
-    seqTool === 'edit' && (isMobileOrPad || forceVirtualKeyboard)
+    seqTool === 'edit' &&
+      (keyboardOverride ?? (isMobileOrPad || forceVirtualKeyboard))
   );
+
+  function toggleVirtualKeyboard() {
+    keyboardOverride = !isVirtualKeyboardVisible;
+    if (keyboardOverride) seqTool = 'edit';
+  }
+
+  function readKeyboardPreference() {
+    forceVirtualKeyboard =
+      localStorage.getItem('spice_force_virtual_keyboard') === 'true';
+  }
 
   // ---------------- Layout Constants ----------------
   const CHAR_W = 9;
@@ -258,7 +272,10 @@
    // primary pointer's coarseness is the reliable signal; UA stays as a fallback.
    isMobileOrPad = (window.matchMedia?.('(pointer: coarse)').matches ?? false)
      || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-   forceVirtualKeyboard = localStorage.getItem('spice_force_virtual_keyboard') === 'true';
+   readKeyboardPreference();
+   // The force-keyboard toggle is saved immediately in Settings, but this page
+   // stays mounted in some navigation flows. Re-read when the window regains focus.
+   window.addEventListener('focus', readKeyboardPreference);
 
    // Load persisted custom codon state
    const savedTaxId = localStorage.getItem('spice_custom_tax_id');
@@ -272,6 +289,7 @@
      }
    }
 
+   let disconnectObserver = () => {};
    if (containerEl) {
      const observer = new ResizeObserver(entries => {
        for (const entry of entries) {
@@ -280,8 +298,13 @@
        }
      });
      observer.observe(containerEl);
-     return () => observer.disconnect();
+     disconnectObserver = () => observer.disconnect();
    }
+
+   return () => {
+     window.removeEventListener('focus', readKeyboardPreference);
+     disconnectObserver();
+   };
  });
 
   // Smoothly scroll the container to the selection when selectionStart changes (Gap 17 Scroll Alignment)
@@ -1281,13 +1304,15 @@
   <div style="display: flex; gap: 0; flex: 1; min-height: 0; position: relative;">
     
     <!-- Vertical Toolbar -->
-    <SequenceToolbar 
-      bind:showEnzymes 
-      bind:showFeatures 
-      bind:showTranslations 
+    <SequenceToolbar
+      bind:showEnzymes
+      bind:showFeatures
+      bind:showTranslations
       bind:seqTool
-      onOpenHybridization={() => showHybridizationModal = true} 
-      onToggleColors={() => pushToast('success', 'Colors', 'Standard')} 
+      virtualKeyboardVisible={isVirtualKeyboardVisible}
+      onToggleVirtualKeyboard={toggleVirtualKeyboard}
+      onOpenHybridization={() => showHybridizationModal = true}
+      onToggleColors={() => pushToast('success', 'Colors', 'Standard')}
       onAddSelectionNote={onAddSelectionNote}
     />
 
@@ -1462,16 +1487,5 @@
   }
   .dna-sequence-view::-webkit-scrollbar-thumb:hover {
     background: #444;
-  }
-  .virtual-key {
-    transition: all 0.1s ease;
-  }
-  .virtual-key:hover {
-    transform: scale(1.08);
-    filter: brightness(1.2);
-  }
-  .virtual-key:active {
-    transform: scale(0.95);
-    filter: brightness(0.9);
   }
 </style>

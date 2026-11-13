@@ -1,0 +1,5 @@
+# Cloudflare Pages serves the docsify manual directly from docs/.
+# In the dashboard use: Framework preset None, no build command, output docs.
+name = "spice-gui-docs"
+pages_build_output_dir = "docs"
+compatibility_date = "2026-11-14"

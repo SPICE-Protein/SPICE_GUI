@@ -12,7 +12,7 @@ import {
   clickTabByText,
   expectTabSelected,
 } from '../helpers.js';
-import { SPD_MOCK_URL, SPD_MOCK_TOKEN } from '../spdMock.js';
+import { SPD_MOCK_URL, SPD_MOCK_TOKEN, BIOBRICK_SEQ } from '../spdMock.js';
 
 const RNA_LENGTH = 78;
 
@@ -81,5 +81,92 @@ describe('SPD integration', () => {
     await expectTabSelected('Properties');
     const length = await expectTestId('gene-length');
     expect((await length.getText()).trim()).toBe(`${RNA_LENGTH} bp`);
+  });
+
+  it('lists and loads a BioBrick part into the workbench', async () => {
+    await resetApp();
+    await browser.execute(
+      (base, token) => {
+        localStorage.setItem('spice_spd_base_url', base);
+        localStorage.setItem('spice_spd_api_token', token);
+      },
+      SPD_MOCK_URL,
+      SPD_MOCK_TOKEN,
+    );
+    await goNav('gene');
+    await expectTestId('gene-workbench');
+
+    await clickMenuAction('gene-menu-file', 'SPD Gene Library');
+    await expectTestId('spd-gene-panel');
+    await clickTestId('spd-tab-biobricks');
+
+    // Opening the tab lists parts without a search; the sequence is fetched
+    // only when Load is pressed (GET /biobricks/{id}).
+    const load = await expectTestId('spd-brick-load');
+    await load.click();
+
+    await clickTabByText('Properties');
+    await expectTabSelected('Properties');
+    const length = await expectTestId('gene-length');
+    await browser.waitUntil(async () => (await length.getText()).trim() === `${BIOBRICK_SEQ.length} bp`, {
+      timeout: 15000,
+      timeoutMsg: 'BioBrick sequence did not enter the workbench',
+    });
+  });
+
+  it('publishes the current DNA as a BioBrick part', async () => {
+    await resetApp();
+    await browser.execute(
+      (base, token) => {
+        localStorage.setItem('spice_spd_base_url', base);
+        localStorage.setItem('spice_spd_api_token', token);
+      },
+      SPD_MOCK_URL,
+      SPD_MOCK_TOKEN,
+    );
+    await goNav('gene');
+    await expectTestId('gene-workbench');
+
+    await clickMenuAction('gene-menu-file', 'SPD Gene Library');
+    await expectTestId('spd-gene-panel');
+    await clickTestId('spd-tab-biobricks');
+
+    const name = await expectTestId('spd-brick-name');
+    await name.setValue('E2E_part');
+    await clickTestId('spd-brick-publish');
+
+    const published = await expectTestId('spd-brick-published-id');
+    expect(await published.getText()).toContain('spd:biobrick:e2e-created');
+  });
+
+  it('lists the token user\'s own SPD entries and loads one', async () => {
+    await resetApp();
+    await browser.execute(
+      (base, token) => {
+        localStorage.setItem('spice_spd_base_url', base);
+        localStorage.setItem('spice_spd_api_token', token);
+      },
+      SPD_MOCK_URL,
+      SPD_MOCK_TOKEN,
+    );
+    await goNav('gene');
+    await expectTestId('gene-workbench');
+
+    await clickMenuAction('gene-menu-file', 'SPD Gene Library');
+    await expectTestId('spd-gene-panel');
+    await clickTestId('spd-tab-mine');
+
+    // GET /user/me/activity is a bare object; the newest authored record is
+    // the BioBrick fixture, and it must be loadable in place.
+    const loadBrick = await expectTestId('spd-mine-load-biobrick');
+    await loadBrick.click();
+
+    await clickTabByText('Properties');
+    await expectTabSelected('Properties');
+    const length = await expectTestId('gene-length');
+    await browser.waitUntil(async () => (await length.getText()).trim() === `${BIOBRICK_SEQ.length} bp`, {
+      timeout: 15000,
+      timeoutMsg: 'personal BioBrick entry did not enter the workbench',
+    });
   });
 });

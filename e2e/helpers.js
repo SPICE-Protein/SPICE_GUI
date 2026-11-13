@@ -4,6 +4,53 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
+/**
+ * Reload the app without `browser.refresh()`.
+ *
+ * The WebDriver refresh command can deadlock: the page context is destroyed
+ * while the command's response is still in flight, so the driver never sees
+ * the result and the session stalls until the command timeout (or forever).
+ * Scheduling the reload on a timer lets the command return first; the marker
+ * disappears with the old JS context, which gives us a reliable signal that
+ * the new document is live.
+ */
+export async function reloadApp() {
+  await browser.execute(() => {
+    window.__spiceE2EReloading = true;
+    setTimeout(() => window.location.reload(), 100);
+  });
+  await browser.waitUntil(
+    async () => {
+      try {
+        return await browser.execute(
+          () =>
+            window.__spiceE2EReloading === undefined &&
+            document.readyState === 'complete' &&
+            !!document.querySelector('[data-testid="nav-home"]'),
+        );
+      } catch {
+        // Commands issued while the document is swapping reject; retry.
+        return false;
+      }
+    },
+    { timeout: 30000, interval: 200, timeoutMsg: 'app did not finish reloading' },
+  );
+  await installDialogStubs();
+}
+
+/**
+ * Native confirm/alert/prompt block the WebView thread, and the embedded
+ * WebDriver has no alert API to dismiss them — one unexpected dialog would
+ * hang every later command. Tests always want the affirmative branch.
+ */
+export async function installDialogStubs() {
+  await browser.execute(() => {
+    window.confirm = () => true;
+    window.alert = () => {};
+    window.prompt = (_message, fallback) => fallback ?? '';
+  });
+}
+
 export async function resetApp(locale = 'en') {
   await browser.execute((tag) => {
     localStorage.clear();
@@ -11,7 +58,7 @@ export async function resetApp(locale = 'en') {
     // this survives the reload and works in Tauri where cookies are rejected.
     localStorage.setItem('PARAGLIDE_LOCALE', tag);
   }, locale);
-  await browser.refresh();
+  await reloadApp();
   await expectTestId('nav-home');
 
   const settings = await $('[data-testid="nav-settings"]');

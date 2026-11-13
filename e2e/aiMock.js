@@ -203,6 +203,10 @@ export function startAiMock() {
 export function stopAiMock(server) {
   return new Promise((resolve) => {
     if (!server) return resolve();
+    // The app keeps HTTP keep-alive sockets open, and `close()` waits for them.
+    // The app is still running when this hook fires, so without the forced
+    // teardown the whole run would hang here after every test has passed.
+    server.closeAllConnections?.();
     server.close(() => resolve());
   });
 }

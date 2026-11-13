@@ -214,6 +214,13 @@
   let gelExportMultiplier = $state((typeof localStorage !== 'undefined' && localStorage.getItem('spice_gel_export_multiplier')) || '4');
   let autoSaveGeneProj = $state((typeof localStorage !== 'undefined' && localStorage.getItem('spice_auto_save_gene_proj') === 'true'));
   let forceVirtualKeyboard = $state((typeof localStorage !== 'undefined' && localStorage.getItem('spice_force_virtual_keyboard') === 'true'));
+
+  // This preference changes the Gene Editor immediately; persist on toggle rather
+  // than waiting for "Save All Configs" so the switch is never silently lost.
+  $effect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem('spice_force_virtual_keyboard', forceVirtualKeyboard ? 'true' : 'false');
+  });
   let isSyncingRebase = $state(false);
   let rebaseCount = $state((typeof localStorage !== 'undefined' && Number(localStorage.getItem('spice_rebase_count'))) || 820);
 

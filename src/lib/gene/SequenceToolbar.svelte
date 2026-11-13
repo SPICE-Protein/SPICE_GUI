@@ -1,13 +1,15 @@
 <script lang="ts">
   import * as m from '$lib/paraglide/messages.js'; 
 
-  import { Scissors, Milestone, Dna, ArrowRight, FileText, Hand, Pencil, Tag } from 'lucide-svelte';
+  import { Scissors, Milestone, Dna, ArrowRight, FileText, Hand, Pencil, Tag, Keyboard } from 'lucide-svelte';
 
   let {
     showEnzymes = $bindable(true),
     showFeatures = $bindable(true),
     showTranslations = $bindable(false),
     seqTool = $bindable('browse'),
+    virtualKeyboardVisible = false,
+    onToggleVirtualKeyboard = () => {},
     onOpenHybridization = () => {},
     onToggleColors = () => {},
     onAddSelectionNote = () => {}
@@ -16,6 +18,8 @@
     showFeatures: boolean;
     showTranslations: boolean;
     seqTool: 'browse' | 'edit' | 'annotate';
+    virtualKeyboardVisible?: boolean;
+    onToggleVirtualKeyboard?: () => void;
     onOpenHybridization: () => void;
     onToggleColors: () => void;
     onAddSelectionNote: () => void;
@@ -91,10 +95,19 @@
     <Dna size={18} />
   </button>
 
+  <!-- Toggle Virtual DNA Keyboard -->
+  <button
+    class="snap-tool-btn {virtualKeyboardVisible ? 'active' : ''}"
+    onclick={onToggleVirtualKeyboard}
+    title={m.virtualKeyboard()}
+  >
+    <Keyboard size={18} />
+  </button>
+
   <!-- Add Selection Note (Gap 17) -->
-  <button 
-    class="snap-tool-btn" 
-    onclick={onAddSelectionNote} 
+  <button
+    class="snap-tool-btn"
+    onclick={onAddSelectionNote}
     title={m.addNoteToSelection()}
     style="color: #4cd6ff;"
   >

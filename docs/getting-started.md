@@ -149,4 +149,4 @@ Images and sequences stay on the machine unless you explicitly publish or use a 
 
 - [Troubleshooting](troubleshooting.md) covers models, detection, exports, and project files.
 - The [releases page](https://github.com/SPICE-Protein/SPICE_GUI/releases) has the current installers and release notes.
-- The [project README](../README.md) describes the architecture and development setup.
+- The [project README](https://github.com/SPICE-Protein/SPICE_GUI#readme) describes the architecture and development setup.

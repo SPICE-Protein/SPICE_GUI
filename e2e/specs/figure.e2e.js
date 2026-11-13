@@ -4,6 +4,7 @@
 
 import {
   resetApp,
+  reloadApp,
   goNav,
   expectTestId,
   clickTestId,
@@ -287,7 +288,7 @@ describe('Figure Studio', () => {
     await clickTestId('figure-add-rect');
     await waitForNodeCount(baseline + 1);
     await browser.pause(800);
-    await browser.refresh();
+    await reloadApp();
     await expectTestId('figure-tool');
     await browser.waitUntil(async () => (await nodeCount()) === baseline + 1, {
       timeout: 15000,

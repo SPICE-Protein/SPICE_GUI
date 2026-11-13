@@ -54,6 +54,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   import SpdGenePanel from '$lib/gene/SpdGenePanel.svelte';
   import type { LoadedVectorTemplate } from '$lib/spd/vectors';
   import type { LoadedSpdGene } from '$lib/spd/genes';
+  import type { LoadedSpdBiobrick } from '$lib/spd/biobricks';
   import { exportItemsToRows, seedEnzymesToSpd as seedBuiltInEnzymes } from '$lib/spd/vectors';
   import { configureSpdClient } from '$lib/spd/store.svelte';
   import { spdToken } from '$lib/spd/client';
@@ -1437,6 +1438,29 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     }));
     pushHistory(`SPD gene: ${plasmidName}`, 'edit');
     pushLog(`[SPD] Loaded gene ${loaded.geneId} (${loaded.sequence.length} bp, ${loaded.features.length} DNA regions)`);
+  }
+
+  // Load an SPD BioBrick as a linear part: one feature spans the whole part,
+  // typed with the deposited part type so downstream panels see a promoter,
+  // CDS, terminator, and so on rather than a generic sequence.
+  function applySpdBiobrick(loaded: LoadedSpdBiobrick) {
+    const name = loaded.record.name || 'SPD BioBrick';
+    dnaSeq = loaded.sequence;
+    plasmidName = name;
+    activeTab = 'linear';
+    geneFeatures = loaded.sequence
+      ? [{
+          id: 1,
+          name,
+          start: 1,
+          end: loaded.sequence.length,
+          type: loaded.record.partType || 'other',
+          color: getEnzymeColor(name),
+          forward: true,
+        }]
+      : [];
+    pushHistory(`SPD BioBrick: ${name}`, 'edit');
+    pushLog(`[SPD] Loaded BioBrick ${loaded.record.id} (${loaded.sequence.length} bp, ${loaded.record.partType})`);
   }
 
   function applyAssemblyResult(result: AssemblyResult) {
@@ -3959,6 +3983,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
           features: geneFeatures.map(f => ({ name: f.name, start: f.start, end: f.end, type: f.type, forward: f.forward })),
         })}
         onLoadGene={applySpdGene}
+        onLoadVector={applySpdVectorTemplate}
+        onLoadBiobrick={applySpdBiobrick}
         pushLog={pushLog}
         pushToast={pushToast}
       />

@@ -1,0 +1,3 @@
+- [Getting started](/getting-started.md)
+- [Download](https://github.com/SPICE-Protein/SPICE_GUI/releases)
+- [GitHub](https://github.com/SPICE-Protein/SPICE_GUI)

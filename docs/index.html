@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SPICE GUI Documentation</title>
+    <meta
+      name="description"
+      content="Task-oriented documentation for SPICE GUI: gene editing, protein work, project hub, AI co-pilot, settings, and bench analysis tools."
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0e14" />
+    <link rel="icon" href="assets/favicon.png" />
+    <link rel="stylesheet" href="assets/docsify/vue.css" />
+    <link rel="stylesheet" href="assets/site.css" />
+  </head>
+  <body>
+    <div id="app">Loading SPICE GUI documentation&hellip;</div>
+
+    <script>
+      window.$docsify = {
+        // Rendered as <h1 class="app-name"> and hidden by site.css. It supplies
+        // the site name used when no sidebar entry is active.
+        name: 'SPICE GUI',
+        homepage: 'README.md',
+        loadSidebar: true,
+        loadNavbar: true,
+        // Resolve links in tools/*.md against their own directory instead of
+        // the site root.
+        relativePath: true,
+        maxLevel: 4,
+        auto2top: true,
+        search: {
+          placeholder: 'Search the manual',
+          noData: 'No matches found.',
+          paths: 'auto',
+          depth: 3,
+          hideOtherSidebarContent: true,
+        },
+        copyCode: {
+          buttonText: 'Copy',
+          errorText: 'Copy failed',
+          successText: 'Copied',
+        },
+        pagination: {
+          previousText: 'Previous',
+          nextText: 'Next',
+          crossChapter: true,
+          crossChapterText: true,
+        },
+        plugins: [
+          function (hook) {
+            // The search plugin inserts its box before <aside>, which puts it
+            // behind the opaque sidebar. Move it inside so it sits on the dark
+            // panel like the rest of the navigation.
+            hook.mounted(function () {
+              var search = document.querySelector('.search');
+              var sidebar = document.querySelector('.sidebar');
+              if (search && sidebar) {
+                sidebar.insertBefore(search, sidebar.firstChild);
+              }
+
+              // Search snippets are raw Markdown slices, so strip code ticks
+              // and emphasis markers while keeping the keyword highlight.
+              var panel = document.querySelector('.search .results-panel');
+              if (panel && window.MutationObserver) {
+                new MutationObserver(function () {
+                  panel
+                    .querySelectorAll('.matching-post p')
+                    .forEach(function (p) {
+                      var walker = document.createTreeWalker(
+                        p,
+                        NodeFilter.SHOW_TEXT,
+                      );
+                      var node;
+                      while ((node = walker.nextNode())) {
+                        node.nodeValue = node.nodeValue
+                          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+                          .replace(/[*`]/g, '')
+                          .replace(/\s+/g, ' ');
+                      }
+                    });
+                }).observe(panel, { childList: true, subtree: true });
+              }
+            });
+
+            // The home route is "/", so docsify does not mark the "Overview"
+            // entry (href "#/") active on its own. The sidebar loads after the
+            // first render, hence the ready hook plus a short retry.
+            function markHome() {
+              var hash = window.location.hash || '#/';
+              if (!/^#\/?(?:\?|$)/.test(hash)) return;
+              var home = document.querySelector(
+                '.sidebar-nav ul li a[href="#/"]',
+              );
+              if (home && home.closest('li')) {
+                home.closest('li').classList.add('active');
+              }
+            }
+
+            hook.doneEach(markHome);
+            hook.ready(function () {
+              markHome();
+              setTimeout(markHome, 300);
+            });
+          },
+        ],
+      };
+    </script>
+
+    <script src="assets/docsify/docsify.min.js"></script>
+    <script src="assets/docsify/plugins/search.min.js"></script>
+    <script src="assets/docsify/plugins/zoom-image.min.js"></script>
+    <script src="assets/plugins/docsify-copy-code.min.js"></script>
+    <script src="assets/plugins/docsify-pagination.min.js"></script>
+
+    <noscript>
+      This documentation is rendered in the browser. Enable JavaScript or read
+      the Markdown files under <code>docs/</code> in the repository.
+    </noscript>
+  </body>
+</html>

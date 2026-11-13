@@ -6,7 +6,7 @@ SPICE (Sequence-Protein Interaction under Conditional Environments) GUI is a loc
 
 Built with SvelteKit (Svelte 5), Tauri v2, Mol\*, and a pixel-art UI theme. Fully internationalized in seven languages.
 
-**Documentation:** [User manual](docs/README.md) — task-oriented guides for every workspace and bench tool, with screenshots.
+**Documentation:** [User manual](docs/README.md) — task-oriented guides for every workspace and bench tool, with screenshots. The `docs/` directory is also a docsify site: `pnpm docs:serve` previews it locally, and Cloudflare Pages can publish it with no build step (output directory `docs`).
 
 ## Screenshots
 

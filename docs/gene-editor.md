@@ -55,8 +55,14 @@ Imports need internet access. Each import creates a history entry, so you can un
 
 `File → SPD Gene Library` opens the shared-gene panel. It requires an SPD API token from **Settings → Public Integrations**.
 
-- **Publish:** fill `Record name`, an optional `Symbol`, and `Gene type` (`protein_coding`, `non_coding`, `regulatory`, `other`), then click `Publish to SPD Gene`. The panel reports the published ID and offers `Details`.
-- **Search:** search by name, symbol, or organism; each result has `Details` and `Load`. Loading applies the sequence, name, topology, and DNA-region features.
+The panel has three tabs: `Genes`, `BioBricks`, and `My entries`.
+
+- **Genes → Publish:** fill `Record name`, an optional `Symbol`, and `Gene type` (`protein_coding`, `non_coding`, `regulatory`, `other`), then click `Publish to SPD Gene`. The panel reports the published ID and offers `Details`.
+- **Genes → Search:** search by name, symbol, or organism; each result has `Load`. Loading applies the sequence, name, topology, and DNA-region features.
+- **BioBricks:** publish the current DNA as a reusable part (`promoter`, `rbs`, `terminator`, `cds`, `protein_tag`, `regulatory`, `other`), or list/search the public part catalog and load a part. Loading replaces the workspace with a linear part and one spanning feature of the deposited part type. Duplicate names and duplicate sequences are rejected by SPD.
+- **My entries:** reads `GET /user/me/activity` for the token user. It lists authored genes, vectors, BioBricks, folds, constructs, and batch imports with status and date. Genes, vectors, and BioBricks have a `Load` button; other record types are shown for reference.
+
+SPD BioBrick records may be RNA (`U`); loading converts `U` to `T` for the DNA canvas and says so in the toast. Linked vector templates are reported when a part is loaded, but the part itself is always one linear sequence.
 
 Publishing sends your sequence to the SPD service. Do not publish unpublished constructs.
 
@@ -142,7 +148,9 @@ Click a base before typing. The empty-selection state is a cursor before base 1,
 
 ### 4.4 DNA keyboard
 
-A virtual `DNA KEYBOARD:` with A/T/C/G, backspace, `DEL`, and `✖` appears automatically in Edit Mode on touch devices, or on desktop when **Settings → Gene Editor → Force Virtual Keyboard** is on. Closing it returns to Browse Mode.
+A virtual `DNA KEYBOARD:` with A/T/C/G, backspace, `DEL`, and `✖` appears automatically in Edit Mode on touch devices, or on desktop when **Settings → Gene Editor → Force Virtual Keyboard** is on. The keyboard button in the vertical sequence toolbar toggles it directly, without changing Settings; it also switches to Edit Mode when turned on. Closing the keyboard returns to Browse Mode.
+
+The force-keyboard switch applies as soon as you toggle it, and is also persisted with **Save All Configs**. If the keyboard still does not appear, confirm you are in Edit Mode and that the pane is wide enough to show the bar above the status line.
 
 ### 4.5 Search
 
