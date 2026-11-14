@@ -165,8 +165,23 @@ jobs:
 
       # AppImage is intentionally excluded: linuxdeploy's runtime download fails intermittently in CI,
       # and deb/rpm cover enough; add it back to the bundles list when needed.
+      #
+      # macOS without a Developer ID certificate must still be bundle-signed. cargo only
+      # linker-signs the Mach-O, which leaves no _CodeSignature/CodeResources; Gatekeeper
+      # then reports the copied .app as "damaged" instead of the usual unidentified-developer
+      # prompt. Identity "-" asks tauri to ad-hoc sign the app bundle (and its binary) before
+      # the DMG is built. With a certificate present, APPLE_SIGNING_IDENTITY wins and the
+      # fallback branch is skipped.
       - name: Tauri build
-        run: pnpm tauri build --bundles ${{ matrix.bundles }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.name }}" = "macos-arm64" ] && [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "No Apple certificate; building with ad-hoc bundle signing"
+            pnpm tauri build --bundles ${{ matrix.bundles }} \
+              --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+          else
+            pnpm tauri build --bundles ${{ matrix.bundles }}
+          fi
         env:
           # Prerequisites to take effect (tauri.conf.json):
           #  · pfx route    → set certificateThumbprint/digestAlgorithm/timestampUrl under bundle.windows
@@ -182,6 +197,20 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      # Regression guard for the fallback above: verify the app inside the DMG, because
+      # `--bundles dmg` deletes the intermediate .app directory after packaging.
+      - name: Verify macOS bundle signature
+        if: matrix.name == 'macos-arm64'
+        shell: bash
+        run: |
+          DMG=$(find src-tauri/target/release/bundle/dmg -name '*.dmg' -print -quit)
+          test -n "$DMG"
+          MOUNT=$(mktemp -d)
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null
+          codesign --verify --deep --strict "$MOUNT/SPICE GUI.app"
+          codesign -dv "$MOUNT/SPICE GUI.app" 2>&1 | grep -E 'Identifier=|Sealed Resources'
+          hdiutil detach "$MOUNT" >/dev/null
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

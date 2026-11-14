@@ -441,9 +441,12 @@
     mcpServers = [...mcpServers, {
       id: newMcpServerId(),
       name: 'Local MCP',
+      transport: 'stdio',
       command: 'npx',
       args: [],
       env: {},
+      url: '',
+      auth: 'none',
       enabled: true,
     }];
     persistMcpServers();
@@ -497,7 +500,9 @@
   }
 
   async function ensureMcpTools() {
-    const enabled = mcpServers.some((server) => server.enabled && server.command.trim());
+    const enabled = mcpServers.some((server) => server.enabled && (
+      server.transport === 'http' ? server.url.trim() : server.command.trim()
+    ));
     if (enabled && !mcpLoaded && !mcpLoading) await refreshMcpTools(true);
   }
 
@@ -994,38 +999,47 @@
         </label>
 
         <details class="config-section" bind:open={showMcp}>
-          <summary><Plug size={11} /> {m.aiMcpServers()} ({mcpServers.length})</summary>
+          <summary data-testid="ai-mcp-section"><Plug size={11} /> {m.aiMcpServers()} ({mcpServers.length})</summary>
           <div class="mcp-toolbar">
             <button class="pix-btn-reset action-btn" onclick={addMcpServer}><Plus size={11} /> {m.aiMcpAdd()}</button>
-            <button class="pix-btn-reset action-btn" onclick={() => refreshMcpTools()} disabled={mcpLoading}>
+            <button class="pix-btn-reset action-btn" data-testid="ai-mcp-refresh" onclick={() => refreshMcpTools()} disabled={mcpLoading}>
               <RefreshCw size={11} class={mcpLoading ? 'spin' : ''} /> {m.aiMcpRefresh()}
             </button>
           </div>
           {#each mcpServers as server (server.id)}
-            <div class="mcp-server">
+            <div class="mcp-server" data-testid={server.builtin ? 'ai-mcp-builtin' : 'ai-mcp-server'}>
               <div class="mcp-row">
                 <input type="checkbox" bind:checked={server.enabled} onchange={persistMcpServers} title={m.aiMcpEnabled()} />
-                <input class="pix-input mcp-name" bind:value={server.name} onchange={persistMcpServers} placeholder={m.aiMcpName()} />
-                <button class="pix-btn-reset mcp-remove" onclick={() => removeMcpServer(server.id)} title={m.delete()}><Trash2 size={11} /></button>
+                <input class="pix-input mcp-name" bind:value={server.name} onchange={persistMcpServers} placeholder={m.aiMcpName()} readonly={server.builtin} />
+                {#if !server.builtin}
+                  <button class="pix-btn-reset mcp-remove" onclick={() => removeMcpServer(server.id)} title={m.delete()}><Trash2 size={11} /></button>
+                {/if}
               </div>
-              <input class="pix-input" bind:value={server.command} onchange={persistMcpServers} placeholder={m.aiMcpCommand()} />
-              <input
-                class="pix-input"
-                value={server.args.join(' ')}
-                onchange={(event) => setMcpArgs(server, event.currentTarget.value)}
-                placeholder={m.aiMcpArgs()}
-              />
-              <textarea
-                class="pix-textarea mcp-env"
-                rows={2}
-                value={JSON.stringify(server.env)}
-                onchange={(event) => setMcpEnv(server, event.currentTarget.value)}
-                placeholder={m.aiMcpEnv()}
-              ></textarea>
+              {#if server.transport === 'http'}
+                <input class="pix-input" data-testid="ai-mcp-url" value={server.url} readonly placeholder={m.aiMcpUrl()} />
+                {#if server.auth === 'spd'}
+                  <div class="mcp-hint">{m.aiMcpSpdToken()}</div>
+                {/if}
+              {:else}
+                <input class="pix-input" bind:value={server.command} onchange={persistMcpServers} placeholder={m.aiMcpCommand()} />
+                <input
+                  class="pix-input"
+                  value={server.args.join(' ')}
+                  onchange={(event) => setMcpArgs(server, event.currentTarget.value)}
+                  placeholder={m.aiMcpArgs()}
+                />
+                <textarea
+                  class="pix-textarea mcp-env"
+                  rows={2}
+                  value={JSON.stringify(server.env)}
+                  onchange={(event) => setMcpEnv(server, event.currentTarget.value)}
+                  placeholder={m.aiMcpEnv()}
+                ></textarea>
+              {/if}
             </div>
           {/each}
           {#if mcpErrors.length}
-            <div class="mcp-errors">{mcpErrors.join(' · ')}</div>
+            <div class="mcp-errors" data-testid="ai-mcp-errors">{mcpErrors.join(' · ')}</div>
           {/if}
           <div class="mcp-tools-count">{m.aiMcpToolsFound({ n: mcpTools.length })}</div>
         </details>
@@ -1919,6 +1933,11 @@
   }
   .mcp-remove:hover { color: var(--pix-red); }
   .mcp-env { min-height: 30px; }
+  .mcp-hint {
+    color: var(--pix-fg-dim);
+    font-size: 9px;
+    line-height: 1.4;
+  }
   .mcp-errors {
     color: var(--pix-red);
     font-size: 9px;

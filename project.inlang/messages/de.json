@@ -4343,5 +4343,16 @@
   "primerMatchPlaceholder": "Paste template or primer sequence…",
   "primerMatchNone": "No matching primers.",
   "primerOrderEmptyTitle": "No primers to order",
-  "primerOrderEmptyBody": "Add at least one primer item first."
+  "primerOrderEmptyBody": "Add at least one primer item first.",
+  "settingsUpdateTitle": "Über die App & Updates",
+  "settingsVersionLabel": "Version",
+  "settingsCheckUpdates": "Nach Updates suchen",
+  "settingsCheckingUpdates": "Wird geprüft…",
+  "settingsUpToDate": "Sie verwenden die neueste Version.",
+  "settingsUpdateAvailable": "Version {version} ist verfügbar.",
+  "settingsUpdateFailed": "Update-Prüfung fehlgeschlagen: {error}",
+  "settingsOpenRelease": "Release-Seite öffnen",
+  "settingsUpdateHint": "Die Prüfung kontaktiert api.github.com nur, wenn Sie die Schaltfläche drücken. Updates werden durch Herunterladen des Releases für Ihre Plattform installiert; die App ersetzt sich nicht selbst.",
+  "aiMcpUrl": "Server-URL",
+  "aiMcpSpdToken": "Verwendet das SPD-API-Token aus Einstellungen → Öffentliche Integrationen."
 }

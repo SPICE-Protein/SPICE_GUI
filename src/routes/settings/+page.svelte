@@ -17,6 +17,8 @@
   import { configureSpdClient } from '$lib/spd/store.svelte';
   import { spdBaseUrl as defaultSpdBaseUrl, spdToken as storedSpdToken } from '$lib/spd/client';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { checkForUpdate, RELEASES_PAGE, type LatestRelease } from '$lib/update/release';
   import type { SpdHealth, SpdUserMe } from '$lib/spd/types';
   import { identityStore } from '$lib/identity/store.svelte';
   import {
@@ -173,6 +175,41 @@
     else window.open(url, '_blank', 'noopener');
   }
 
+  // ---------------- ABOUT & UPDATES ----------------
+  let appVersion = $state('…');
+  let updateState = $state<'idle' | 'checking' | 'latest' | 'available' | 'error'>('idle');
+  let updateRelease = $state<LatestRelease | null>(null);
+  let updateError = $state('');
+
+  async function loadAppVersion() {
+    try {
+      appVersion = await getVersion();
+    } catch {
+      // Browser/dev build: no Tauri app metadata, use the bundled package version.
+      appVersion = __APP_VERSION__;
+    }
+  }
+
+  async function runUpdateCheck() {
+    if (updateState === 'checking') return;
+    updateState = 'checking';
+    updateError = '';
+    try {
+      const result = await checkForUpdate(appVersion);
+      updateRelease = result.latest;
+      updateState = result.updateAvailable ? 'available' : 'latest';
+    } catch (error) {
+      updateError = error instanceof Error ? error.message : String(error);
+      updateState = 'error';
+    }
+  }
+
+  function openReleasePage() {
+    const url = updateRelease?.url || RELEASES_PAGE;
+    if (isTauri()) void openUrl(url);
+    else window.open(url, '_blank', 'noopener');
+  }
+
   async function checkSpdHealth() {
     spdBusy = true; spdError = null; spdHealth = null;
     try {
@@ -258,6 +295,7 @@
     ggStatus = await gelgenieStatus();
     statusBusy = false;
     shortcuts = loadKeymap();
+    void loadAppVersion();
     // A saved ORCID re-verifies automatically so the ELN author field is
     // enabled without a manual click after each app start.
     if (orcidInput.trim()) void loadOrcidProfile();
@@ -690,6 +728,56 @@
                 {#if identity.value.profile}<div class="pix-num good" style="font-size: 9px; word-break: break-word;">{identity.value.profile.creditName || [identity.value.profile.givenNames, identity.value.profile.familyName].filter(Boolean).join(' ') || identity.value.profile.orcid}{identity.value.profile.institution ? ` · ${identity.value.profile.institution}` : ''}</div>{/if}
                 {#if identity.value.error}<div class="pix-num bad" style="font-size: 9px; word-break: break-all;">{identity.value.error}</div>{/if}
               </div>
+            </div>
+          {/snippet}
+        </Card>
+
+        <div style="height: 10px;"></div>
+
+        <!-- ============ SECTION 5: ABOUT & UPDATES ============ -->
+        <Card {...ui} padding="16px">
+          {#snippet children()}
+            <div class="pix-title" style="color: var(--pix-green); display: flex; align-items: center; gap: 4px; font-size: 13px;">
+              <Info size={14} /> {m.settingsUpdateTitle()}
+            </div>
+            <Divider {...ui} />
+
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="pix-dim" style="font-weight: bold;">{m.settingsVersionLabel()}</span>
+                <span class="pix-num" data-testid="settings-app-version" style="color: var(--pix-cyan); font-weight: bold;">{appVersion}</span>
+              </div>
+
+              <button
+                class="pix-btn ok"
+                data-testid="settings-check-updates"
+                disabled={updateState === 'checking'}
+                onclick={runUpdateCheck}
+                style="width: 100%; padding: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
+              >
+                <RefreshCw size={11} class={updateState === 'checking' ? 'spin' : ''} />
+                {updateState === 'checking' ? m.settingsCheckingUpdates() : m.settingsCheckUpdates()}
+              </button>
+
+              {#if updateState === 'latest'}
+                <div class="pix-num good" data-testid="settings-update-status">{m.settingsUpToDate()}</div>
+              {:else if updateState === 'available' && updateRelease}
+                <div data-testid="settings-update-status" style="color: var(--pix-green); font-weight: bold;">
+                  {m.settingsUpdateAvailable({ version: updateRelease.version })}
+                </div>
+                <button class="pix-btn" data-testid="settings-open-release" onclick={openReleasePage} style="width: 100%; padding: 5px;">
+                  {m.settingsOpenRelease()}
+                </button>
+              {:else if updateState === 'error'}
+                <div class="pix-num bad" data-testid="settings-update-status" style="word-break: break-word;">
+                  {m.settingsUpdateFailed({ error: updateError })}
+                </div>
+                <button class="pix-btn" data-testid="settings-open-release" onclick={openReleasePage} style="width: 100%; padding: 5px;">
+                  {m.settingsOpenRelease()}
+                </button>
+              {/if}
+
+              <div class="pix-dim" style="font-size: 9px; line-height: 1.4;">{m.settingsUpdateHint()}</div>
             </div>
           {/snippet}
         </Card>

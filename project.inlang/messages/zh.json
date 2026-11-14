@@ -4343,5 +4343,16 @@
   "primerMatchPlaceholder": "粘贴模板或引物序列…",
   "primerMatchNone": "没有匹配的引物。",
   "primerOrderEmptyTitle": "没有可下单的引物",
-  "primerOrderEmptyBody": "请先添加至少一条引物。"
+  "primerOrderEmptyBody": "请先添加至少一条引物。",
+  "settingsUpdateTitle": "关于与更新",
+  "settingsVersionLabel": "版本",
+  "settingsCheckUpdates": "检查更新",
+  "settingsCheckingUpdates": "检查中…",
+  "settingsUpToDate": "当前已是最新版本。",
+  "settingsUpdateAvailable": "有新版本 {version} 可用。",
+  "settingsUpdateFailed": "无法检查更新：{error}",
+  "settingsOpenRelease": "打开发布页面",
+  "settingsUpdateHint": "只有点击按钮时才会访问 api.github.com。更新需从发布页下载对应平台的安装包，应用不会自行替换。",
+  "aiMcpUrl": "服务器 URL",
+  "aiMcpSpdToken": "使用“设置 → 公共集成”中的 SPD API 令牌。"
 }

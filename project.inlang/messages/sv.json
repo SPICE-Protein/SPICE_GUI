@@ -4343,5 +4343,16 @@
   "primerMatchPlaceholder": "Paste template or primer sequence…",
   "primerMatchNone": "No matching primers.",
   "primerOrderEmptyTitle": "No primers to order",
-  "primerOrderEmptyBody": "Add at least one primer item first."
+  "primerOrderEmptyBody": "Add at least one primer item first.",
+  "settingsUpdateTitle": "Om appen och uppdateringar",
+  "settingsVersionLabel": "Version",
+  "settingsCheckUpdates": "Sök efter uppdateringar",
+  "settingsCheckingUpdates": "Söker…",
+  "settingsUpToDate": "Du använder den senaste versionen.",
+  "settingsUpdateAvailable": "Version {version} är tillgänglig.",
+  "settingsUpdateFailed": "Kunde inte söka efter uppdateringar: {error}",
+  "settingsOpenRelease": "Öppna releasesidan",
+  "settingsUpdateHint": "Kontrollen kontaktar api.github.com endast när du trycker på knappen. Uppdateringar installeras genom att ladda ner versionen för din plattform; appen ersätter inte sig själv.",
+  "aiMcpUrl": "Server-URL",
+  "aiMcpSpdToken": "Använder SPD API-token från Inställningar → Offentliga integrationer."
 }

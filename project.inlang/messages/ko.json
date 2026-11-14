@@ -4343,5 +4343,16 @@
   "primerMatchPlaceholder": "Paste template or primer sequence…",
   "primerMatchNone": "No matching primers.",
   "primerOrderEmptyTitle": "No primers to order",
-  "primerOrderEmptyBody": "Add at least one primer item first."
+  "primerOrderEmptyBody": "Add at least one primer item first.",
+  "settingsUpdateTitle": "정보 및 업데이트",
+  "settingsVersionLabel": "버전",
+  "settingsCheckUpdates": "업데이트 확인",
+  "settingsCheckingUpdates": "확인 중…",
+  "settingsUpToDate": "최신 버전입니다.",
+  "settingsUpdateAvailable": "버전 {version}을(를) 사용할 수 있습니다.",
+  "settingsUpdateFailed": "업데이트를 확인할 수 없습니다: {error}",
+  "settingsOpenRelease": "릴리스 페이지 열기",
+  "settingsUpdateHint": "버튼을 누를 때만 api.github.com에 연결합니다. 업데이트는 사용 중인 플랫폼의 릴리스를 내려받아 설치하며, 앱이 스스로 교체되지는 않습니다.",
+  "aiMcpUrl": "서버 URL",
+  "aiMcpSpdToken": "설정 → 공개 연동의 SPD API 토큰을 사용합니다."
 }

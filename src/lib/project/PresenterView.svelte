@@ -238,7 +238,8 @@
   .ps-side {
     width: 340px; flex: 0 0 340px; border-left: 3px solid var(--pix-border);
     background: var(--pix-bg-2); display: flex; flex-direction: column; gap: 8px;
-    padding: 12px; overflow: hidden; min-height: 0;
+    /* Top padding clears the absolutely positioned control cluster. */
+    padding: 52px 12px 12px; overflow: hidden; min-height: 0;
   }
   .ps-side-row { display: flex; justify-content: space-between; font-weight: bold; }
   .ps-timer { color: var(--pix-accent); }

@@ -4343,5 +4343,16 @@
   "primerMatchPlaceholder": "Paste template or primer sequence…",
   "primerMatchNone": "No matching primers.",
   "primerOrderEmptyTitle": "No primers to order",
-  "primerOrderEmptyBody": "Add at least one primer item first."
+  "primerOrderEmptyBody": "Add at least one primer item first.",
+  "settingsUpdateTitle": "このアプリについて・更新",
+  "settingsVersionLabel": "バージョン",
+  "settingsCheckUpdates": "更新を確認",
+  "settingsCheckingUpdates": "確認中…",
+  "settingsUpToDate": "最新バージョンです。",
+  "settingsUpdateAvailable": "バージョン {version} が利用可能です。",
+  "settingsUpdateFailed": "更新を確認できませんでした：{error}",
+  "settingsOpenRelease": "リリースページを開く",
+  "settingsUpdateHint": "ボタンを押したときだけ api.github.com に接続します。更新はお使いのプラットフォーム向けのリリースをダウンロードしてインストールします。アプリが自動で置き換わることはありません。",
+  "aiMcpUrl": "サーバー URL",
+  "aiMcpSpdToken": "「設定 → 公開連携」の SPD API トークンを使用します。"
 }

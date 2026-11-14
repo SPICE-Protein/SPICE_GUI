@@ -663,7 +663,7 @@
     <section class="lab-body">
       <div class="proto-subtabs">
         <button class="pix-btn {protocolsTab === 'templates' ? 'ok' : ''}" onclick={() => protocolsTab = 'templates'}>{m.protoTabTemplates()} ({protoStats.templates})</button>
-        <button class="pix-btn {protocolsTab === 'runs' ? 'ok' : ''}" onclick={() => protocolsTab = 'runs'}>{m.protoTabRuns()} ({protoStats.runs})</button>
+        <button class="pix-btn {protocolsTab === 'runs' ? 'ok' : ''}" data-testid="proto-tab-runs" onclick={() => protocolsTab = 'runs'}>{m.protoTabRuns()} ({protoStats.runs})</button>
         <span class="tb-spacer"></span>
         <button class="pix-btn ok" data-testid="proto-new" onclick={openNewTemplate}><Plus size={12} /> {m.protoNewTemplate()}</button>
         <button class="pix-btn" onclick={() => protocolFileInput?.click()}><Upload size={12} /> {m.importBtn()}</button>
@@ -942,7 +942,7 @@
       {/if}
 
       <div class="modal-btns">
-        <button class="pix-btn" onclick={() => (primerToolsOpen = false)}>{m.close()}</button>
+        <button class="pix-btn" data-testid="primer-tools-close" onclick={() => (primerToolsOpen = false)}>{m.close()}</button>
       </div>
     </div>
   </div>

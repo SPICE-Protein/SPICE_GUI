@@ -1,16 +1,48 @@
-// Model Context Protocol (stdio) client configuration for the Co-Pilot.
+// Model Context Protocol client configuration for the Co-Pilot.
 //
-// MCP servers are arbitrary local commands. They are disabled by default, their
-// tools are reviewed at approval time, and every call is recorded in the audit
-// trail. The Rust side performs the JSON-RPC handshake (see src-tauri/src/mcp.rs).
+// User servers are arbitrary local commands (stdio). The built-in SPD catalog
+// uses Streamable HTTP and authenticates with the SPD API token from Settings →
+// Public Integrations; the token is resolved per call and never written into the
+// server definition. Every MCP call is approval-gated and audited.
+
+import { spdToken } from '$lib/spd/client';
+
+export type McpTransport = 'stdio' | 'http';
+export type McpAuth = 'none' | 'spd';
 
 export interface McpServerConfig {
   id: string;
   name: string;
+  transport: McpTransport;
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** HTTP transport endpoint. */
+  url: string;
+  /** Where the bearer token comes from at call time. */
+  auth: McpAuth;
   enabled: boolean;
+  /** Ships with the app; the URL and token source are not user-editable. */
+  builtin?: boolean;
+}
+
+export const SPD_MCP_ID = 'spd_catalog';
+export const SPD_MCP_URL = 'https://d-mcp.spicebio.top/mcp';
+
+/** Built-in SPD Protein Database MCP server. */
+export function spdMcpServer(enabled = true): McpServerConfig {
+  return {
+    id: SPD_MCP_ID,
+    name: 'SPD Protein Database',
+    transport: 'http',
+    command: '',
+    args: [],
+    env: {},
+    url: SPD_MCP_URL,
+    auth: 'spd',
+    enabled,
+    builtin: true,
+  };
 }
 
 export interface McpToolDescriptor {
@@ -40,26 +72,46 @@ function storage(): Storage | null {
   }
 }
 
+function normalizeServer(server: Record<string, unknown>): McpServerConfig | null {
+  if (typeof server.id !== 'string' || !server.id) return null;
+  const transport: McpTransport = server.transport === 'http' ? 'http' : 'stdio';
+  const command = typeof server.command === 'string' ? server.command.trim() : '';
+  const url = typeof server.url === 'string' ? server.url.trim() : '';
+  if (transport === 'http' ? !url : !command) return null;
+  return {
+    id: server.id,
+    name: typeof server.name === 'string' && server.name.trim() ? server.name : server.id,
+    transport,
+    command: transport === 'http' ? '' : command,
+    args: Array.isArray(server.args) ? server.args.map(String) : [],
+    env: server.env && typeof server.env === 'object' && !Array.isArray(server.env)
+      ? Object.fromEntries(Object.entries(server.env as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
+      : {},
+    url: transport === 'http' ? url : '',
+    auth: server.auth === 'spd' ? 'spd' : 'none',
+    enabled: server.enabled !== false,
+    builtin: server.builtin === true,
+  };
+}
+
 export function loadMcpServers(): McpServerConfig[] {
   const store = storage();
-  if (!store) return [];
+  if (!store) return [spdMcpServer()];
   try {
     const parsed = JSON.parse(store.getItem(STORAGE_KEY) ?? '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((server) => server && typeof server.id === 'string' && typeof server.command === 'string')
-      .map((server) => ({
-        id: server.id,
-        name: typeof server.name === 'string' && server.name.trim() ? server.name : server.id,
-        command: server.command.trim(),
-        args: Array.isArray(server.args) ? server.args.map(String) : [],
-        env: server.env && typeof server.env === 'object'
-          ? Object.fromEntries(Object.entries(server.env).map(([key, value]) => [key, String(value)]))
-          : {},
-        enabled: server.enabled !== false,
-      }));
+    const servers = Array.isArray(parsed)
+      ? parsed
+        .filter((server): server is Record<string, unknown> => Boolean(server) && typeof server === 'object')
+        .map(normalizeServer)
+        .filter((server): server is McpServerConfig => server !== null)
+      : [];
+    // The built-in row is always present; its endpoint and token source come
+    // from the app, while the user keeps control of the enabled flag.
+    const existing = servers.find((server) => server.id === SPD_MCP_ID);
+    if (!existing) return [spdMcpServer(), ...servers];
+    return servers.map((server) => (server.id === SPD_MCP_ID ? spdMcpServer(server.enabled) : server));
   } catch {
-    return [];
+    return [spdMcpServer()];
   }
 }
 
@@ -143,10 +195,22 @@ function safeToolName(serverId: string, name: string, used: Set<string>): string
   return candidate;
 }
 
+function isRunnable(server: McpServerConfig): boolean {
+  if (!server.enabled) return false;
+  return server.transport === 'http' ? Boolean(server.url.trim()) : Boolean(server.command.trim());
+}
+
+function invokeConfig(server: McpServerConfig): McpServerConfig & { token: string } {
+  return {
+    ...server,
+    token: server.auth === 'spd' ? spdToken() : '',
+  };
+}
+
 /** Fetch tools/list from every enabled server. A broken server is reported but
  *  does not prevent other servers or the built-in tools from working. */
 export async function listMcpTools(servers: McpServerConfig[]): Promise<McpToolListResult> {
-  const enabled = servers.filter((server) => server.enabled && server.command.trim());
+  const enabled = servers.filter(isRunnable);
   if (!enabled.length) return { tools: [], errors: [] };
 
   const { invoke } = await import('@tauri-apps/api/core');
@@ -155,8 +219,12 @@ export async function listMcpTools(servers: McpServerConfig[]): Promise<McpToolL
   const used = new Set<string>();
 
   for (const server of enabled) {
+    if (server.auth === 'spd' && !spdToken().trim()) {
+      errors.push(`${server.name}: SPD API token is not set (Settings → Public Integrations)`);
+      continue;
+    }
     try {
-      const result = await invoke<{ tools?: unknown }>('mcp_list_tools', { server });
+      const result = await invoke<{ tools?: unknown }>('mcp_list_tools', { server: invokeConfig(server) });
       const rawTools = Array.isArray(result?.tools) ? result.tools : [];
       for (const raw of rawTools) {
         const entry = raw as {
@@ -192,11 +260,14 @@ export async function callMcpTool(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  if (server.auth === 'spd' && !spdToken().trim()) {
+    throw new Error('SPD API token is not set (Settings → Public Integrations)');
+  }
   const { invoke } = await import('@tauri-apps/api/core');
   const result = await invoke<{
     content?: Array<{ type?: string; text?: string }>;
     isError?: boolean;
-  }>('mcp_call_tool', { server, tool: toolName, arguments: args });
+  }>('mcp_call_tool', { server: invokeConfig(server), tool: toolName, arguments: args });
 
   const text = (Array.isArray(result?.content) ? result.content : [])
     .map((block) => block?.type === 'text' && typeof block.text === 'string'

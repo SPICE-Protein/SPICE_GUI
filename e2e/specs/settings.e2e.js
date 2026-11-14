@@ -25,6 +25,13 @@ describe('Settings', () => {
     }
   });
 
+  it('shows the running version and offers an update check', async () => {
+    const version = await expectTestId('settings-app-version');
+    expect(await version.getText()).toMatch(/^\d+\.\d+\.\d+$/);
+    const check = await expectTestId('settings-check-updates');
+    expect(await check.isEnabled()).toBe(true);
+  });
+
   it('changes the theme and saves all settings', async () => {
     const selects = await $$('select');
     expect(selects.length).toBeGreaterThan(0);

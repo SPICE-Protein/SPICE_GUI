@@ -4343,5 +4343,16 @@
   "primerMatchPlaceholder": "Paste template or primer sequence…",
   "primerMatchNone": "No matching primers.",
   "primerOrderEmptyTitle": "No primers to order",
-  "primerOrderEmptyBody": "Add at least one primer item first."
+  "primerOrderEmptyBody": "Add at least one primer item first.",
+  "settingsUpdateTitle": "About & updates",
+  "settingsVersionLabel": "Version",
+  "settingsCheckUpdates": "Check for updates",
+  "settingsCheckingUpdates": "Checking…",
+  "settingsUpToDate": "You are on the latest version.",
+  "settingsUpdateAvailable": "Version {version} is available.",
+  "settingsUpdateFailed": "Could not check for updates: {error}",
+  "settingsOpenRelease": "Open release page",
+  "settingsUpdateHint": "The check contacts api.github.com only when you press the button. Updates are installed by downloading the release for your platform; the app does not replace itself.",
+  "aiMcpUrl": "Server URL",
+  "aiMcpSpdToken": "Uses the SPD API token from Settings → Public Integrations."
 }
