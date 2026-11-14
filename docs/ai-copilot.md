@@ -8,6 +8,8 @@ The AI Co-Pilot is an optional assistant inside SPICE GUI. It can answer questio
 
 Click **AI Co-Pilot** in the top bar. The sidebar has two tabs: **AI Copilot** and **Toolbox**.
 
+![AI Co-Pilot drawer with the live workspace context banner and the message composer](images/ai-copilot.webp)
+
 The header has a settings gear, a reset button, and a close button. The live-context banner shows the active workspace, sequence prefix and length, pH, temperature, and — when available — m1, GC%, and host.
 
 Type in **Type your question...**. `Enter` sends; `Shift+Enter` inserts a newline. While a response is streaming, the send button becomes a stop button.
@@ -113,7 +115,15 @@ The settings pane has an **MCP servers** section.
 - MCP is desktop-only.
 - A tool is treated as read-only only when the server sets `readOnlyHint: true`; everything else requires approval.
 
-MCP servers are arbitrary local commands. Only add servers you trust, and keep secrets out of environment JSON when possible.
+Local server rows run a command over stdio. That is arbitrary code execution under your account: only add servers you trust, and keep secrets out of environment JSON where possible.
+
+### 7.1 Built-in SPD catalog
+
+One server ships with the app and cannot be removed: **SPD Protein Database**, served over Streamable HTTP at `https://d-mcp.spicebio.top/mcp`. It exposes the SPD catalog's read tools (`spd_entity_part`, `spd_relations`, `spd_references`, `spd_external_ids`, and the `spd_external_*` federation search) plus the audited federation import doors.
+
+The server authenticates with the **SPD API token** entered under **Settings → Public Integrations**; no separate token is stored with the MCP row. Without a token the endpoint still answers anonymously at a reduced depth and request budget. With the token, the paid tier applies (deeper traversal and a larger budget), and the import tools become available.
+
+The row has an **Enabled** checkbox and a read-only URL. A tool's write capability is defined by SPD, not by the app: every MCP call still goes through the normal approval and audit path.
 
 ## 8. Memory and audit
 

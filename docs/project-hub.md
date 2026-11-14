@@ -149,6 +149,8 @@ A practical page starts with a title slide, one slide per result, and blockquote
 
 ### 7.2 Presenter controls
 
+![Presenter view: the current slide, the next-slide preview, and the speaker notes from a blockquote](images/project-presenter-view.webp)
+
 | Key | Action |
 |---|---|
 | `→`, `↓`, `Page Down`, `Space` | Next slide |

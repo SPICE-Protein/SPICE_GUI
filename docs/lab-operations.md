@@ -4,6 +4,8 @@
 
 The **Lab** workspace records what is physically in the lab and what was done with it. It has two tabs: **Inventory** for strains, plasmids, primers, reagents, and samples, and **Protocols** for reusable protocol templates and the runs executed from them. Both are local-first and export as portable JSON.
 
+![Lab inventory with six items, quantity controls, status badges, and primer Tm values](images/lab-inventory.webp)
+
 ## 1. Inventory
 
 ### 1.1 Add an item
@@ -42,6 +44,8 @@ An item whose **Derived from** field lists parents shows a lane count in the lis
 
 Primers are ordinary inventory items with **Kind = Primer**; the list shows the calculated Tm for any primer that has a sequence. The **Primer tools** button opens the primer-specific utilities that used to live in the Gene Editor.
 
+![Primer tools with order export, template matching, and the 96-well freezer map](images/lab-primer-tools.webp)
+
 - **Order sheet.** Choose Sangon, Tsingke, or IDT and download a CSV containing every primer in the inventory. Scale is fixed at 50 nmol and purification at DSL; edit the CSV if you need different chemistry.
 - **Match.** Paste a template or a designed primer sequence. The matcher uses 15-mer overlap against every primer with a sequence and lists the matching primers with Tm and location.
 - **Freezer map.** Shows a 96-well or 10×10 grid built from the **Position** field of primer items. Filled wells are green; hover to see the primer name. Duplicate positions are reported above the grid.
@@ -77,6 +81,8 @@ Click **Start run** on a template card, or start one from a project journal page
 ### 3.2 Execute steps
 
 Open **Lab → Protocols → Runs** and select the run. Each step has **Start**, **Complete**, **Skip**, and **Reset**. Step status moves from pending to running to done or skipped, and start and completion timestamps are recorded.
+
+![A running miniprep protocol with completed and running steps, parameter values, and operator](images/lab-protocols.webp)
 
 Record observations in the step notes, and write the overall outcome, measurements, or deviations in **Results**. **Save results** stores the text against the run.
 

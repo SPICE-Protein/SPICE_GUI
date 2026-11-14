@@ -41,6 +41,7 @@ Most work is offline. The following features make network requests, and each sen
 | GelGenie or SPICE model download | The configured URL | Standard download request, and a proxy if configured. |
 | AI Co-Pilot | Your configured endpoint | The conversation and the workspace context you inject. |
 | MCP servers | The configured server | The tool arguments the assistant sends. |
+| Built-in SPD MCP catalog | `d-mcp.spicebio.top` | The SPD API token (when configured) and the catalog query arguments the model sends. |
 
 UniProt import and RCSB lookups are ordinary read-only requests. Publish operations are the main case where your own sequence or record is sent to a third party.
 

@@ -10,6 +10,8 @@ The VM has no file system, no network, no `os`, and no `package`. A script can o
 
 Use **Cloning & Design → Lua Scripts**. The panel lists the built-in scripts and your own scripts.
 
+![The Lua panel with the GC window report script selected, its source, console output, and returned JSON](images/scripting.webp)
+
 Choose a script, edit the arguments and source, then click **Run**. The console shows `spice.log` output, the return value is rendered as JSON, and any proposed patch appears below with **Apply to document** and **Discard**.
 
 Built-in scripts are read-only. **Duplicate** creates an editable copy; app updates never overwrite your copies.
@@ -56,6 +58,8 @@ spice.doc.apply({ sequence = newSequence })
 spice.doc.apply({ name = "pUC19-min" })
 spice.doc.apply({ sequence = newSequence, name = "pUC19-min" })
 ```
+
+![A codon-optimisation run that proposes a new sequence; nothing changes until Apply to document is clicked](images/scripting-patch.webp)
 
 Rules:
 

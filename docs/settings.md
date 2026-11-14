@@ -18,6 +18,12 @@ Open **Settings** from the top navigation. The page has four categories: **Gener
 
 **ELN Default Author Name:** is read-only and disabled until an ORCID profile is loaded. It shows the verified ORCID display name and is used for ELN signing and the Project Hub PI prefill. To enable it, load an ORCID iD under **Public Integrations** first.
 
+### 1.4 Software updates
+
+**Version** shows the running build. **Check for updates** queries the public GitHub release feed at `api.github.com` and reports whether a newer tag exists; nothing is sent except the request itself, and nothing is checked until you press the button.
+
+When a newer release exists, **Open release page** opens it in your browser. The app does not download or replace itself: installers differ per platform and are not notarized for every release, so the update is a deliberate download rather than a silent in-app updater. Keep the current app until the new one launches successfully, then remove the old copy.
+
 ## 2. Models
 
 ### 2.1 SPICE ONNX model
@@ -67,6 +73,8 @@ To authenticate:
 5. On success, the page shows **SPD identity: {name} (roles: {roles})**.
 
 The token is stored locally. **Verify token** stores the token and base URL only after the identity call succeeds. **Save All Configs** writes the current fields even if they have not been verified.
+
+The same token authenticates the built-in SPD MCP server used by the AI Co-Pilot (see [AI Co-Pilot §7.1](ai-copilot.md)). The MCP row stores only the endpoint, so rotating the token here takes effect on the next tool refresh.
 
 ### 3.2 ORCID
 

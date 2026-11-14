@@ -33,6 +33,7 @@ SPICE GUI is a local-first desktop workbench for gene editing, protein work, and
 
 ## Reference
 
+- [Panel reference](panels/README.md) — one page per Gene Editor panel and Protein Workstation pane, with screenshots.
 - [Data and safety](data-and-safety.md) — where data lives, what leaves the machine, credentials, ELN signature limits, and backups.
 - [Troubleshooting](troubleshooting.md) — models, detection, exports, projects, ELN, SPD, AI, performance, and reporting a problem.
 - [Project README](https://github.com/SPICE-Protein/SPICE_GUI#readme) — architecture, development, and build instructions.

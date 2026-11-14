@@ -16,6 +16,15 @@ This page covers the problems that come up most often: installation, models, det
 
 **The window is blank on macOS.** Use a current build. Very old builds linked against older SDKs can draw a blank WKWebView on newer macOS versions. If a current build is still blank, quit and relaunch; if it persists, check the console output from a terminal launch and report it.
 
+**macOS says the app is damaged.** The download is usually intact; the bundle failed Gatekeeper's signature check. Builds without an Apple Developer ID are ad-hoc signed, and an app copied out of a quarantined DMG can still be refused. Move it to Applications, then clear the quarantine flag and open it:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/SPICE GUI.app"
+open "/Applications/SPICE GUI.app"
+```
+
+If the message returns, the bundle is not signed at all: `codesign --verify --deep --strict "/Applications/SPICE GUI.app"` reports `code has no resources but signature indicates they must be present`. Download a current release; report the release tag if the same build fails again.
+
 **Linux: missing libraries.** The `.deb` and `.rpm` packages declare their dependencies. On a minimal distribution you may need WebKitGTK and related runtime packages. Install the package with your package manager rather than extracting it manually.
 
 **Android: the interface asks me to rotate.** The workbench requires landscape. Rotate the device or enable auto-rotate. Some file and model workflows are easier on a desktop.

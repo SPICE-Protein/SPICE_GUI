@@ -8,7 +8,7 @@ The Protein Workstation is the structural-biology side of SPICE GUI. It combines
 
 ## 1. Interface tour
 
-The page has three resizable columns and a top menu bar.
+The page has three resizable columns and a top menu bar. The five right-hand panes are also documented individually in the [Panel reference](panels/README.md).
 
 **Left column** contains the inputs and the activity log:
 

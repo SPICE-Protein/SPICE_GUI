@@ -6,6 +6,8 @@ The Gene Editor is SPICE's molecular-biology workbench. It opens, edits, annotat
 
 The editor is deliberately dense. You do not need all of it at once. Start with **File**, the six view tabs, and **Edit → Sequence Search**, then add the design and analysis panels you actually use.
 
+Every panel also has a one-page reference with a screenshot: see [Panel reference](panels/README.md).
+
 ## 1. Workspace layout
 
 The workspace is a dark, full-height split view.

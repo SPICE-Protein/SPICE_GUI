@@ -18,6 +18,8 @@
 - [Lua Scripting](/scripting.md)
 - [AI Co-Pilot](/ai-copilot.md)
 - [Settings](/settings.md)
+- **Panel reference**
+- [All panels](/panels/README.md)
 - **Bench tools**
 - [Tools overview](/tools/README.md)
 - [Gel figure](/tools/gel.md)
