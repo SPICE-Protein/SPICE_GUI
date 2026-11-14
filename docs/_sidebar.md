@@ -14,6 +14,8 @@
 - [Gene Editor](/gene-editor.md)
 - [Protein Workstation](/protein-workstation.md)
 - [Project Hub](/project-hub.md)
+- [Lab Operations](/lab-operations.md)
+- [Lua Scripting](/scripting.md)
 - [AI Co-Pilot](/ai-copilot.md)
 - [Settings](/settings.md)
 - **Bench tools**

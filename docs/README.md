@@ -2,7 +2,7 @@
 
 SPICE GUI is a local-first desktop workbench for gene editing, protein work, and bench analysis. This documentation is a task-oriented manual: each page explains the interface, the workflow, the exports, and the limits.
 
-**Version:** matches SPICE GUI v0.1.0. The interface is available in Simplified Chinese, English, Japanese, Korean, German, Dutch, and Swedish. Screenshots use English, and labels in the manual match the English UI.
+**Version:** matches SPICE GUI v0.2.0. The interface is available in Simplified Chinese, English, Japanese, Korean, German, Dutch, and Swedish. Screenshots use English, and labels in the manual match the English UI.
 
 ## Start here
 
@@ -14,6 +14,8 @@ SPICE GUI is a local-first desktop workbench for gene editing, protein work, and
 - [Gene Editor](gene-editor.md) — maps, sequence editing, features, restriction enzymes, primers, PCR, cloning, CRISPR, analysis panels, QC, history, and ELN notes.
 - [Protein Workstation](protein-workstation.md) — folding, structure import, MD verification, pockets, phase scans, mutation design, high-throughput screening, and export.
 - [Project Hub](project-hub.md) — projects, embedded documents, journal pages, Presenter, ELN signing, attachments, and backups.
+- [Lab Operations](lab-operations.md) — inventory registry for strains, plasmids, primers, reagents, and samples; protocol templates, runs, and run sheets.
+- [Lua Scripting](scripting.md) — script the Gene Editor with Lua 5.4: API, built-in scripts, limits, and patch review.
 - [AI Co-Pilot](ai-copilot.md) — endpoint setup, context, structured imports, tools, agent mode, MCP, and audit.
 - [Settings](settings.md) — language, theme, models, SPD, ORCID, database syncs, keymap, and save semantics.
 

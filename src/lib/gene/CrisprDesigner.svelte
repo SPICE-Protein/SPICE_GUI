@@ -5,6 +5,12 @@
   import { Sparkles, Scan, ChevronDown, Check, AlertTriangle, HelpCircle, ArrowRight, RefreshCw, Copy, Layers } from 'lucide-svelte';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { findGrnaCandidates, designHdrDonor, designPegRna, type GrnaCandidate, type CasType, PAM_DATABASE } from '$lib/genome/crispr';
+  import {
+    findGenomeWideOfftargets,
+    scoreGuideSpecificity,
+    type GenomeSequence,
+    type OfftargetHit
+  } from '$lib/genome/crisprOfftarget';
 
   let {
     dnaSeq = $bindable(''),
@@ -75,8 +81,87 @@
     }
   });
 
+  // Genome-wide off-target search state. Genomes are pasted or loaded as
+  // FASTA text; nothing leaves the app.
+  let genomeText = $state('');
+  let offMaxMismatch = $state(4);
+  let offHits = $state<OfftargetHit[]>([]);
+  let offScanned = $state(false);
+
+  const CAS_PAM: Record<CasType, { pam: string; direction: '3prime' | '5prime' }> = {
+    SpCas9: { pam: 'NGG', direction: '3prime' },
+    SpCas9_VQR: { pam: 'NGA', direction: '3prime' },
+    SaCas9: { pam: 'NNGRRT', direction: '3prime' },
+    Cas12a: { pam: 'TTTV', direction: '5prime' }
+  };
+
   // Derived selected gRNA
   const selectedGrna = $derived(gRnas[selectedGrnaIdx] || null);
+
+  function parseGenomes(text: string): GenomeSequence[] {
+    const genomes: GenomeSequence[] = [];
+    let id = 'genome';
+    let chunks: string[] = [];
+    const flush = () => {
+      if (chunks.length > 0) genomes.push({ id, sequence: chunks.join('') });
+      chunks = [];
+    };
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line.startsWith('>')) {
+        flush();
+        id = line.slice(1).trim() || `genome_${genomes.length + 1}`;
+      } else if (line) {
+        chunks.push(line.replace(/[^A-Za-z]/g, ''));
+      }
+    }
+    flush();
+    return genomes;
+  }
+
+  function loadGenomeFile(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    void file.text().then((text) => {
+      genomeText = text;
+    }).catch(() => pushToast('error', m.crisprScanFailed(), file.name));
+    input.value = '';
+  }
+
+  function runOfftargetSearch() {
+    if (!selectedGrna) {
+      pushToast('error', m.crisprOfftargetNoGuide(), '');
+      return;
+    }
+    const genomes = parseGenomes(genomeText);
+    if (genomes.length === 0) {
+      pushToast('error', m.crisprOfftargetNoGenomeTitle(), m.crisprOfftargetNoGenomeBody());
+      return;
+    }
+    const pam = CAS_PAM[selectedCas];
+    try {
+      offHits = findGenomeWideOfftargets(selectedGrna.sequence, genomes, {
+        pam: pam.pam,
+        guideLength: selectedGrna.sequence.length,
+        maxMismatches: offMaxMismatch,
+        maxHits: 50,
+        pamDirection: pam.direction
+      });
+      offScanned = true;
+      const stats = scoreGuideSpecificity(offHits);
+      onApplyLog(
+        m.crisprOfftargetLog({
+          guide: selectedGrna.sequence,
+          genomes: genomes.length,
+          off: stats.offTargets
+        })
+      );
+    } catch (error) {
+      offScanned = false;
+      pushToast('error', m.crisprOfftargetFailed(), error instanceof Error ? error.message : String(error));
+    }
+  }
 
   // Scan sequence for gRNA
   function runCrisprScan() {
@@ -238,6 +323,78 @@
                 {/if}
               </span>
             </div>
+          </div>
+
+          <!-- Genome-wide off-target search -->
+          <div class="offtarget-box" style="background: var(--pix-bg-2); border: 1px solid var(--pix-border); padding: 6px; border-radius: 4px; display: flex; flex-direction: column; gap: 4px; font-size: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: bold; color: var(--pix-accent-2);">{m.crisprOfftargetTitle()}</span>
+              <span class="pix-dim">{CAS_PAM[selectedCas].pam} · {m.crisprOfftargetMaxMismatch()}
+                <input
+                  type="number"
+                  min="0"
+                  max="8"
+                  bind:value={offMaxMismatch}
+                  style="width: 40px; background: var(--pix-bg-3); border: 1px solid var(--pix-border); color: #fff; padding: 0 3px; font-size: 10px;"
+                />
+              </span>
+            </div>
+            <textarea
+              bind:value={genomeText}
+              rows="3"
+              placeholder={m.crisprOfftargetGenomePh()}
+              data-testid="crispr-genome-input"
+              style="width: 100%; box-sizing: border-box; resize: vertical; background: var(--pix-bg-3); border: 1px solid var(--pix-border); color: var(--pix-green); font-family: monospace; font-size: 9px; padding: 3px;"
+            ></textarea>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <label class="pix-btn-reset" style="flex: 1; text-align: center; padding: 3px 5px; font-size: 10px; cursor: pointer; border: 1px solid var(--pix-border);">
+                {m.crisprOfftargetLoadFasta()}
+                <input type="file" accept=".fa,.fasta,.fna,.txt,text/plain" onchange={loadGenomeFile} hidden />
+              </label>
+              <button
+                class="pix-btn"
+                data-testid="crispr-offtarget-run"
+                onclick={runOfftargetSearch}
+                style="flex: 1; padding: 3px 5px; font-size: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; cursor: pointer;"
+              >
+                <Scan size={10} /> {m.crisprOfftargetSearch()}
+              </button>
+            </div>
+            {#if offScanned}
+              {@const stats = scoreGuideSpecificity(offHits)}
+              <div class="pix-dim" data-testid="crispr-offtarget-summary">
+                {m.crisprOfftargetSummary({ total: offHits.length, off: stats.offTargets })}
+              </div>
+              {#if offHits.length > 0}
+                <div style="max-height: 130px; overflow-y: auto; border: 1px solid var(--pix-border); background: var(--pix-bg-3);">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 9px; text-align: left;">
+                    <thead style="background: var(--pix-bg-2); position: sticky; top: 0;">
+                      <tr>
+                        <th style="padding: 2px 3px;">{m.crisprOfftargetColGenome()}</th>
+                        <th style="padding: 2px 3px;">{m.crisprOfftargetColPosition()}</th>
+                        <th style="padding: 2px 3px;">{m.crisprOfftargetColStrand()}</th>
+                        <th style="padding: 2px 3px;">{m.crisprOfftargetColSequence()}</th>
+                        <th style="padding: 2px 3px; text-align: right;">{m.crisprOfftargetColMismatch()}</th>
+                        <th style="padding: 2px 3px; text-align: right;">CFD*</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each offHits as hit, idx (hit.genomeId + hit.position + hit.strand + idx)}
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); {hit.onTarget ? 'background: rgba(0,255,255,0.12);' : ''}">
+                          <td style="padding: 2px 3px;">{hit.genomeId}</td>
+                          <td style="padding: 2px 3px;">{hit.position}</td>
+                          <td style="padding: 2px 3px;">{hit.strand}</td>
+                          <td style="padding: 2px 3px; font-family: monospace; color: var(--pix-green);">{hit.guide}<span style="color: var(--pix-accent-2);">{hit.pam}</span></td>
+                          <td style="padding: 2px 3px; text-align: right; {hit.mismatches === 0 ? 'color: var(--pix-cyan);' : ''}">{hit.mismatches}</td>
+                          <td style="padding: 2px 3px; text-align: right;">{hit.cfd.toFixed(2)}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+                <div class="pix-dim" style="font-size: 8.5px; line-height: 1.4;">{m.crisprOfftargetCfdNote()}</div>
+              {/if}
+            {/if}
           </div>
 
           <!-- Tabs -->

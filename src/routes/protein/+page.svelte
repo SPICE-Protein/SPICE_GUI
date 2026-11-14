@@ -9,6 +9,8 @@
   import { EXAMPLE_SEQS, cleanSeq, seqFromPdb, validateSeq } from '$lib/backend/preprocess';
   import { METRIC_THRESHOLDS } from '$lib/backend/types';
   import type { BuildOut, DownloadProgress, Env, FoldOutput, MetricsOut, ModelStatus, ScanPoint, ScanProgress, StepOut } from '$lib/backend/types';
+  import { DEFAULT_FOLD_PROVIDER_ID, FOLD_PROVIDERS, foldWithProvider, getFoldProvider } from '$lib/folding/registry';
+  import type { FoldProgress, FoldProviderId } from '$lib/folding/types';
   import { buildMmcif } from '$lib/backend/mmcif';
   import MolStarViewer from '$lib/viewer/MolStarViewer.svelte';
   import Heatmap from '$lib/ui/Heatmap.svelte';
@@ -69,7 +71,18 @@
   let leftW = $state(300);
   let rightW = $state(360);
 
-  let seq = $state(EXAMPLE_SEQS[0].seq);
+  // A one-shot handoff (for example from an external BLAST hit) is consumed in
+  // onMount: the route module can be evaluated before the handoff exists, so
+  // reading it here would miss the hit.
+  function initialProteinSequence(): string {
+    if (typeof localStorage === 'undefined') return EXAMPLE_SEQS[0].seq;
+    try {
+      return localStorage.getItem('spice.protein.seq') || EXAMPLE_SEQS[0].seq;
+    } catch {
+      return EXAMPLE_SEQS[0].seq;
+    }
+  }
+  let seq = $state(initialProteinSequence());
   let exampleId = $state(EXAMPLE_SEQS[0].id);
   let env = $state<Env>({ ph: 7.0, tempK: 310, pressureBar: 1.0, ionicStrengthM: 0.0 });
 
@@ -89,6 +102,37 @@
   let foldDemo = $state(false);
   let foldError = $state<string | null>(null);
   let foldBusy = $state(false);
+
+  // Pluggable folding backend. The provider declares which folding conditions
+  // and outputs it can honour; the UI hides or disables the rest so a backend
+  // such as SWISS-MODEL never silently promises an environment-aware result.
+  function initialFoldProvider(): FoldProviderId {
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('spice_fold_provider') : null;
+    return stored && stored in FOLD_PROVIDERS ? (stored as FoldProviderId) : DEFAULT_FOLD_PROVIDER_ID;
+  }
+  let foldProviderId = $state<FoldProviderId>(initialFoldProvider());
+  let foldToken = $state(
+    typeof localStorage !== 'undefined' ? (localStorage.getItem('spice_fold_swissmodel_token') ?? '') : ''
+  );
+  let foldPhase = $state<FoldProgress['phase'] | null>(null);
+  let foldProviderNote = $state<string | null>(null);
+  const foldProvider = $derived(getFoldProvider(foldProviderId));
+  const foldCaps = $derived(foldProvider.descriptor.capabilities);
+
+  $effect(() => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('spice_fold_provider', foldProviderId);
+  });
+  $effect(() => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('spice_fold_swissmodel_token', foldToken);
+  });
+
+  function foldPhaseLabel(phase: FoldProgress['phase']): string {
+    switch (phase) {
+      case 'submitting': return m.foldPhaseSubmitting();
+      case 'waiting': return m.foldPhaseWaiting();
+      case 'fetching': return m.foldPhaseFetching();
+    }
+  }
   let spdBusy = $state(false);
   let spdMessage = $state<string | null>(null);
   let spdFoldId = $state<string | null>(null);
@@ -190,13 +234,21 @@
   onMount(() => {
     window.addEventListener('resize', fitToWindow);
     try {
+      const pendingSeq = localStorage.getItem('spice.protein.pending');
+      if (pendingSeq) {
+        localStorage.removeItem('spice.protein.pending');
+        seq = pendingSeq;
+      }
+    } catch {
+      /* ignore storage errors */
+    }
+    try {
       const s = JSON.parse(localStorage.getItem('spice.cols') || '{}');
       if (typeof s.l === 'number') leftW = clampW(s.l, COL_MIN_L, COL_MAX);
       if (typeof s.r === 'number') rightW = clampW(s.r, COL_MIN_R, COL_MAX);
       
-      const savedSeq = localStorage.getItem('spice.protein.seq');
-      if (savedSeq) seq = savedSeq;
-      
+      // `seq` was restored from the saved session at init and any pending
+      // handoff was applied above; do not re-read the saved key here.
       const savedEnv = localStorage.getItem('spice.protein.env');
       if (savedEnv) env = JSON.parse(savedEnv);
       
@@ -455,8 +507,16 @@ Variant_M5,I32L + L45M + L50M`);
     return null;
   });
 
+  // Apply an example only when the user picks one. Running this on mount would
+  // overwrite a sequence restored from the saved session (or a BLAST handoff).
+  let examplePicked = false;
   $effect(() => {
-    pickExample(exampleId);
+    const id = exampleId;
+    if (!examplePicked) {
+      examplePicked = true;
+      return;
+    }
+    pickExample(id);
   });
 
   // ---------------- SPD public database integration ----------------
@@ -664,21 +724,43 @@ Variant_M5,I32L + L45M + L50M`);
   async function doFold() {
     const v = validateSeq(seq);
     if (v) { foldError = v; return; }
+    const caps = foldCaps;
+    if (caps.requiresToken && !foldToken.trim()) {
+      foldError = m.foldTokenRequired();
+      return;
+    }
     foldBusy = true;
     foldError = null;
+    foldProviderNote = null;
+    foldPhase = null;
     stepOut = null;
     viewMutant = false;
-    const r = await backend.fold(cleanSeq(seq), env);
-    folded = r.data;
-    foldDemo = r.demo ?? false;
-    foldError = r.error ?? null;
-    if (!r.demo) {
-      pushLog(m.logFoldDone({ length: r.data.length, ms: r.data.runMs.toFixed(1) }));
-      void notify('success', m.notifyFoldDone(), m.notifyFoldDoneBody({ length: r.data.length, ms: r.data.runMs.toFixed(1) }));
-    } else {
-      pushLog(m.logFoldDemo({ length: r.data.length }));
+    try {
+      const result = await foldWithProvider({
+        providerId: foldProviderId,
+        sequence: cleanSeq(seq),
+        env,
+        token: caps.requiresToken ? foldToken.trim() : undefined,
+        onProgress: (progress) => { foldPhase = progress.phase; },
+      });
+      const output = result.output;
+      folded = output;
+      foldProviderNote = result.note ?? null;
+      foldDemo = result.providerId === 'demo';
+      if (result.providerId === 'demo') {
+        pushLog(m.logFoldDemo({ length: output.length }));
+      } else {
+        pushLog(m.logFoldDone({ length: output.length, ms: output.runMs.toFixed(1) }));
+        void notify('success', m.notifyFoldDone(), m.notifyFoldDoneBody({ length: output.length, ms: output.runMs.toFixed(1) }));
+      }
+    } catch (error) {
+      folded = null;
+      foldError = error instanceof Error ? error.message : String(error);
+      pushLog(`[Fold] ${foldError}`);
+    } finally {
+      foldBusy = false;
+      foldPhase = null;
     }
-    foldBusy = false;
   }
 
   function parseCustomProtonation(text: string): Record<number, string> {
@@ -1756,9 +1838,27 @@ Variant_M5,I32L + L45M + L50M`);
 
         <div class="seq-meta pix-dim">{cleanSeq(seq).length} aa</div>
 
-        <Slider {...ui} min={0} max={14} step={0.1} label={`pH ${env.ph.toFixed(1)}`} bind:value={env.ph} />
-        <Slider {...ui} min={250} max={400} step={1} label={`T ${env.tempK.toFixed(0)} K`} bind:value={env.tempK} />
-        <Slider {...ui} min={0} max={2} step={0.01} label={m.ionicLabel({ v: env.ionicStrengthM.toFixed(2) })} bind:value={env.ionicStrengthM} />
+        <div class="fold-provider-row">
+          <span class="pix-dim fold-provider-label">{m.foldProviderLabel()}</span>
+          <select class="pix-input fold-provider-select" data-testid="fold-provider" bind:value={foldProviderId} title={foldProvider.descriptor.description}>
+            {#each Object.values(FOLD_PROVIDERS) as provider (provider.descriptor.id)}
+              <option value={provider.descriptor.id}>{provider.descriptor.name}</option>
+            {/each}
+          </select>
+        </div>
+        {#if !foldCaps.environment}
+          <div class="fold-capability-note" data-testid="fold-env-note">
+            {m.foldEnvUnsupported({ name: foldProvider.descriptor.name })}
+          </div>
+        {/if}
+        {#if foldCaps.requiresToken}
+          <input class="pix-input fold-token-input" type="password" data-testid="fold-token"
+            placeholder={m.foldTokenPlaceholder()} bind:value={foldToken} autocomplete="off" />
+        {/if}
+
+        <Slider {...ui} min={0} max={14} step={0.1} disabled={!foldCaps.environment} label={`pH ${env.ph.toFixed(1)}`} bind:value={env.ph} />
+        <Slider {...ui} min={250} max={400} step={1} disabled={!foldCaps.environment} label={`T ${env.tempK.toFixed(0)} K`} bind:value={env.tempK} />
+        <Slider {...ui} min={0} max={2} step={0.01} disabled={!foldCaps.environment} label={m.ionicLabel({ v: env.ionicStrengthM.toFixed(2) })} bind:value={env.ionicStrengthM} />
 
         <div class="row-btns" style="margin-top: 6px; margin-bottom: 6px; justify-content: space-between;">
           <label class="pdb-upload pix-btn-reset" style="margin: 0; display: inline-flex; align-items: center; justify-content: center; height: 18px; line-height: 18px;">
@@ -1781,6 +1881,12 @@ Variant_M5,I32L + L45M + L50M`);
         <Button {...ui} icon="" variant="filled" preset="primary" disabled={foldBusy} onclick={doFold} class="wide-btn">
           {#snippet children()}<Dna size={15} /> {foldBusy ? m.folding() : m.foldBtn()}{/snippet}
         </Button>
+        {#if foldBusy && foldPhase}
+          <div class="fold-phase pix-dim" data-testid="fold-phase">{foldPhaseLabel(foldPhase)}</div>
+        {/if}
+        {#if foldProviderNote && !foldError}
+          <div class="fold-capability-note" data-testid="fold-provider-note">{foldProviderNote}</div>
+        {/if}
         <div class="spd-panel" style="margin-top: 8px; padding: 7px; border: 1px solid var(--pix-border);">
           <div class="pix-subtitle" style="margin: 0 0 4px;">SPD</div>
           <div style="display:flex; align-items:center; gap:4px;">
@@ -2628,6 +2734,17 @@ Variant_M5,I32L + L45M + L50M`);
   .row-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .pdb-upload { display: inline-block; cursor: pointer; margin-top: 6px; }
   .seq-meta { font-size: 10px; text-align: right; margin-top: 2px; }
+
+  .fold-provider-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .fold-provider-label { font-size: 10px; white-space: nowrap; }
+  .fold-provider-select { flex: 1; min-width: 0; font-size: 10px; padding: 2px 4px; height: 24px; }
+  .fold-token-input { width: 100%; font-size: 10px; padding: 3px 5px; margin-bottom: 4px; box-sizing: border-box; }
+  .fold-capability-note {
+    font-size: 10px; line-height: 1.5; color: var(--pix-accent-2);
+    border-left: 2px solid var(--pix-accent-2); background: rgba(226, 180, 72, 0.06);
+    padding: 3px 6px; margin: 4px 0;
+  }
+  .fold-phase { font-size: 10px; text-align: center; margin-top: 4px; }
   .log { font-size: 10px; max-height: 120px; overflow-y: auto; }
   .log-line { white-space: nowrap; }
   .log-line.good { color: var(--pix-green); text-shadow: 0 0 2px rgba(83, 215, 105, 0.4); }

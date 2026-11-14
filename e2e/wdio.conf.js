@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startSpdMock, stopSpdMock } from './spdMock.js';
 import { AI_MOCK_URL, startAiMock, stopAiMock } from './aiMock.js';
+import { startBlastMock, stopBlastMock } from './blastMock.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -154,6 +155,7 @@ const embeddedPort = await resolveEmbeddedPortOnce();
 // real client + Rust bridge execute against stable fixtures.
 let spdMockServer = null;
 let aiMockServer = null;
+let blastMockServer = null;
 
 export const config = {
   // Hooks live in the config object itself: the CLI launcher reads them from
@@ -163,14 +165,17 @@ export const config = {
     console.log(`[e2e] embedded WebDriver port: ${embeddedPort}`);
     spdMockServer = await startSpdMock();
     aiMockServer = await startAiMock();
+    blastMockServer = await startBlastMock();
     // Copilot specs point the app at this endpoint after each localStorage reset.
     process.env.SPICE_AI_MOCK_URL = AI_MOCK_URL;
   },
   onComplete: async () => {
     await stopSpdMock(spdMockServer);
     await stopAiMock(aiMockServer);
+    await stopBlastMock(blastMockServer);
     spdMockServer = null;
     aiMockServer = null;
+    blastMockServer = null;
   },
 
   runner: 'local',

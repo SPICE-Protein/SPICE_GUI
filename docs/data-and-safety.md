@@ -11,6 +11,8 @@ SPICE GUI is local-first. Sequences, images, projects, and analysis results are 
 | Bench-tool documents | Tool JSON files, or embedded in a `.spiceproj`. |
 | Settings, keymap, credentials | The WebView's local storage. |
 | Autosave snapshots and the Known Projects registry | Local storage. |
+| Inventory registry and protocol library | Local storage (`spice_inventory_items`, `spice_protocol_library`), as portable JSON exports. |
+| SWISS-MODEL API token | Local storage (`spice_fold_swissmodel_token`); sent only to the SWISS-MODEL endpoint. |
 | GelGenie model | The application data directory, for example `~/Library/Application Support/com.spice.gui/models/gelgenie_unet.onnx` on macOS. |
 | SPICE protein checkpoint | A local path or the default model directory; never embedded in a project. |
 | Exports | Wherever you save them. |
@@ -26,7 +28,11 @@ Most work is offline. The following features make network requests, and each sen
 | NCBI import | NCBI E-utilities | Gene symbol, accession, or search term. |
 | Ensembl import | Ensembl REST | Gene name or Ensembl ID. |
 | UniProt import | UniProt REST | Accession. |
+| External BLAST (NCBI) | NCBI BLAST URL API | Query sequence, database, and optional contact email. |
+| External BLAST (UniProt) | EBI Job Dispatcher | Query sequence, database, and contact email. |
+| BLAST hit details | NCBI E-utilities or UniProt REST | Hit accession. |
 | PDB / mmCIF import | RCSB, PDB-REDO | PDB ID or file request. |
+| Protein folding with SWISS-MODEL | `swissmodel.expasy.org` Modelling API | API token and the amino-acid sequence. |
 | SPD health, publish, search | SPD (`d-api.spicebio.top`) | Token, and the record or query you submit. |
 | SynBioHub search/import | SynBioHub | Search term. |
 | ORCID profile | `pub.orcid.org` | ORCID iD. |

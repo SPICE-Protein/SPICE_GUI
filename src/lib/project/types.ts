@@ -46,6 +46,8 @@ export interface ProjectJournalPage {
   date: string;
   category: string;
   tags: string[];
+  /** Optional protocol run attached to this page (SPICE_PROTOCOL_LIBRARY id). */
+  protocolRunId?: string;
 }
 
 export interface SpiceProjectMeta {
@@ -211,7 +213,8 @@ export function validateSpiceProject(x: unknown): ValidationResult {
     markdownContent: pg.markdownContent as string,
     date: typeof pg.date === 'string' ? pg.date : new Date().toLocaleDateString(),
     category: typeof pg.category === 'string' ? pg.category : 'General',
-    tags: Array.isArray(pg.tags) ? pg.tags.filter(t => typeof t === 'string') : []
+    tags: Array.isArray(pg.tags) ? pg.tags.filter(t => typeof t === 'string') : [],
+    protocolRunId: typeof pg.protocolRunId === 'string' ? pg.protocolRunId : undefined
   }));
   const files = Array.isArray(p.files) ? (p.files as Partial<ProjectFileEntry>[]) : [];
   for (const f of files) {

@@ -13,7 +13,8 @@
     Atom,
     ChevronRight,
     Folder,
-    Wrench
+    Wrench,
+    Boxes
   } from 'lucide-svelte';
 
   // Track system or model status on welcome page
@@ -133,6 +134,28 @@
 
       <div class="action-btn-green" style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px dashed var(--pix-border); font-size: 11px; font-weight: bold; color: var(--pix-green);">
         <span>{m.welcomeOpenHub()}</span>
+        <ChevronRight size={14} />
+      </div>
+    </div>
+
+    <!-- Lab Operations Card -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div data-testid="launch-lab" class="launch-card pix-panel green-card" style="padding: 24px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; transition: all 0.2s ease; border-width: 2px; position: relative;" onclick={() => goto('/lab')}>
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="card-icon" style="background: rgba(107, 231, 122, 0.08); border: 2px solid var(--pix-green); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--pix-green);">
+          <Boxes size={23} />
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 15px; color: var(--pix-green); font-weight: bold;">{m.tabLab()}</h3>
+          <p style="margin: 8px 0 0 0; font-size: 11.5px; color: var(--pix-fg-dim); line-height: 1.6;">
+            {m.welcomeOpenLab()}
+          </p>
+        </div>
+      </div>
+
+      <div class="action-btn-green" style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px dashed var(--pix-border); font-size: 11px; font-weight: bold; color: var(--pix-green);">
+        <span>{m.welcomeLaunchWorkspace()}</span>
         <ChevronRight size={14} />
       </div>
     </div>

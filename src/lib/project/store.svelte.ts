@@ -593,7 +593,7 @@ class ProjectStore {
     this.rememberJournalActive();
   }
 
-  updateJournalMeta(id: string, patch: Partial<Pick<ProjectJournalPage, 'title' | 'category' | 'tags'>>) {
+  updateJournalMeta(id: string, patch: Partial<Pick<ProjectJournalPage, 'title' | 'category' | 'tags' | 'protocolRunId'>>) {
     const p = this.current?.journal.pages.find(pg => pg.id === id);
     if (!p || !this.current) return;
     Object.assign(p, patch);

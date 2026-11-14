@@ -43,7 +43,6 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   import NgsGenomicsPanel from '$lib/gene/panels/NgsGenomicsPanel.svelte';
   import AdvancedGenomicsPanel from '$lib/gene/panels/AdvancedGenomicsPanel.svelte';
   import SyntheticBiologyCadPanel from '$lib/gene/panels/SyntheticBiologyCadPanel.svelte';
-  import PrimerLimsPanel from '$lib/gene/panels/PrimerLimsPanel.svelte';
   import SequenceEvolutionPanel from '$lib/gene/panels/SequenceEvolutionPanel.svelte';
   import CloningExtensionPanel from '$lib/gene/panels/CloningExtensionPanel.svelte';
   import CollectionsBatchPanel from '$lib/gene/panels/CollectionsBatchPanel.svelte';
@@ -52,6 +51,9 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   import ExpressionCassetteBuilder from '$lib/gene/ExpressionCassetteBuilder.svelte';
   import VectorTemplatePanel from '$lib/gene/VectorTemplatePanel.svelte';
   import SpdGenePanel from '$lib/gene/SpdGenePanel.svelte';
+  import BlastPanel from '$lib/blast/BlastPanel.svelte';
+  import ScriptPanel from '$lib/script/ScriptPanel.svelte';
+  import type { ScriptPatch } from '$lib/script/types';
   import type { LoadedVectorTemplate } from '$lib/spd/vectors';
   import type { LoadedSpdGene } from '$lib/spd/genes';
   import type { LoadedSpdBiobrick } from '$lib/spd/biobricks';
@@ -325,17 +327,6 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     };
     aiState.onUndoAiChange = () => undo();
     
-    // Load primer inventory from localStorage
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('spice_primer_inventory');
-      if (saved) {
-        try {
-          primerInventory = JSON.parse(saved);
-        } catch (e) {
-          console.error('Failed to parse saved primer inventory:', e);
-        }
-      }
-    }
 
     return () => {
       aiState.onApplyDnaSequence = null;
@@ -754,22 +745,6 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
   // Feature 5: PCR & Cloning Reaction Calculators
   let showCalculatorsPanel = $state(false);
-
-  // Feature 6: Primer LIMS-lite Inventory
-  let showPrimersLimsPanel = $state(false);
-
-  let primerInventory = $state<any[]>([
-    { id: "p1", name: "pUC19_Fwd_Seq", sequence: "GTTTTCCCAGTCACGAC", tm: 54, concentration: 100, volume: 45, location: "A1" },
-    { id: "p2", name: "pUC19_Rev_Seq", sequence: "CAGGAAACAGCTATGAC", tm: 54, concentration: 100, volume: 38, location: "A2" },
-    { id: "p3", name: "EGFP_C_term_His", sequence: "CATCACCATCACCATCACCATTAA", tm: 58, concentration: 100, volume: 50, location: "C4" }
-  ]);
-
-  $effect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('spice_primer_inventory', JSON.stringify(primerInventory));
-    }
-  });
-
 
   // Features 7, 8, 9 & 10: Sequence & Evolution Analysis Panel
   let showSeqAnalysisPanel = $state(false);
@@ -1377,6 +1352,8 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   let showExpressionCassettePanel = $state(false);
   let showVectorTemplatePanel = $state(false);
   let showSpdGenePanel = $state(false);
+  let showBlastPanel = $state(false);
+  let showScriptPanel = $state(false);
   let expressionCassette = $state<ExpressionCassette>({ id: 'cassette-1', parts: [], topology: 'linear' });
   let vectorTemplate = $state<VectorTemplate>({
     id: 'vector-1', name: '', topology: 'circular', sequence: '', features: [], insertionSites: []
@@ -1999,6 +1976,25 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
 
   // Annotations — ported OVE demo features (pJ5_00001)
   let geneFeatures = $state<{ id: number; name: string; start: number; end: number; type: string; color: string; forward?: boolean }[]>(oveDemo.features);
+
+  // Lua scripts receive a read-only snapshot; their patches re-enter the normal
+  // edit path so undo, dirty tracking, and project write-back still work.
+  const scriptFeatures = $derived(
+    geneFeatures.map((feature) => ({
+      name: feature.name,
+      start: feature.start,
+      end: feature.end,
+      type: feature.type,
+      strand: (feature.forward === false ? '-' : '+') as '+' | '-',
+    })),
+  );
+
+  function applyScriptPatch(patch: ScriptPatch, scriptName: string) {
+    pushHistory(`Lua script: ${scriptName}`, 'edit');
+    if (patch.sequence !== undefined) dnaSeq = patch.sequence;
+    if (patch.name !== undefined) plasmidName = patch.name;
+    pushLog(`[Script] ${scriptName}: applied ${patch.sequence?.length ?? dnaSeq.length} bp`);
+  }
 
   // Build an enzyme definition for the cutsite engine: prefer the tg-oss DB,
   // fall back to a generated definition from the synced REBASE data.
@@ -2709,14 +2705,19 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     }).finally(() => { annDbSyncing = false; });
   }
 
-  async function importFromNcbi() {
+  async function importFromNcbi(accession?: string) {
+    const query = (accession ?? ncbiQuery).trim();
+    if (!query) {
+      pushToast('error', m.menuFileNcbi(), m.accessionInputPrompt());
+      return;
+    }
     ncbiLoading = true;
-    pushLog(m.logNcbiRetrieving({ query: ncbiQuery }));
+    pushLog(m.logNcbiRetrieving({ query }));
     try {
-      const res = await backend.importFromNcbi(ncbiQuery.trim(), ncbiOrganism);
+      const res = await backend.importFromNcbi(query, ncbiOrganism);
       if (res.data?.sequence) {
         dnaSeq = res.data.sequence.toUpperCase();
-        plasmidName = res.data.name || ncbiQuery;
+        plasmidName = res.data.name || query;
         if (res.data.features && res.data.features.length > 0) {
           geneFeatures = res.data.features.map((f: any, i: number) => ({
             id: i + 1, name: f.name || 'feature',
@@ -2724,8 +2725,11 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
             type: f.ftype || f.type || 'misc', color: 'var(--pix-accent-2)',
             forward: f.strand !== undefined ? f.strand >= 0 : true
           }));
+        } else {
+          // A new sequence must not keep annotations from the previous one.
+          geneFeatures = [];
         }
-        pushHistory(`NCBI import: ${ncbiQuery}`, 'import');
+        pushHistory(`NCBI import: ${query}`, 'import');
         pushLog(m.logNcbiImportSuccess({ v1: plasmidName, v2: dnaSeq.length }));
         pushToast('success', m.ncbiImportSuccess(), plasmidName);
       } else {
@@ -2774,6 +2778,26 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     } finally {
       uniprotLoading = false;
     }
+  }
+
+  // External BLAST hit actions. Nucleotide hits reuse the NCBI importer;
+  // protein hits hand off to the Protein Workstation through its localStorage
+  // session key (the protein page restores it on mount).
+  function loadBlastNucleotideHit(accession: string) {
+    void importFromNcbi(accession);
+  }
+
+  function sendBlastProteinHit(sequence: string, name: string) {
+    try {
+      // One-shot key consumed by the protein page on mount, so its initial
+      // save effect cannot overwrite the incoming sequence with the old one.
+      localStorage.setItem('spice.protein.pending', sequence);
+    } catch {
+      /* ignore quota */
+    }
+    pushLog(`[BLAST] protein ${name} (${sequence.length} aa) -> Protein Workstation`);
+    pushToast('success', m.blastSendProteinOk(), name);
+    void goto('/protein');
   }
 
   // SnapGene parity: Anneal Oligos
@@ -3120,6 +3144,9 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         <button class="menu-action-btn" onclick={() => showUniprotPanel = !showUniprotPanel}>
           <Globe size={12} /> {m.menuFileUniprot()}
         </button>
+        <button class="menu-action-btn {showBlastPanel ? 'active' : ''}" data-testid="gene-menu-blast" onclick={() => showBlastPanel = !showBlastPanel}>
+          <Search size={12} /> {m.blastMenu()}
+        </button>
         <button class="menu-action-btn {showSpdGenePanel ? 'active' : ''}" data-testid="gene-menu-spd" style="color: var(--pix-cyan);" onclick={() => showSpdGenePanel = !showSpdGenePanel}>
           <Database size={12} /> {m.spdGeneMenu()}
         </button>
@@ -3207,9 +3234,6 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         <button class="menu-action-btn {showCalculatorsPanel ? 'active' : ''}" onclick={() => showCalculatorsPanel = !showCalculatorsPanel}>
           <FlaskIcon size={12} /> {m.menuCloneCalc()}
         </button>
-        <button class="menu-action-btn {showPrimersLimsPanel ? 'active' : ''}" onclick={() => showPrimersLimsPanel = !showPrimersLimsPanel}>
-          <Folder size={12} /> {m.menuCloneLims()}
-        </button>
         <div class="menu-divider"></div>
         <button class="menu-action-btn {showSyntheticGeneQc ? 'active' : ''}" style="color: var(--pix-accent-2);" onclick={() => showSyntheticGeneQc = !showSyntheticGeneQc}>
           <Check size={12} /> {m.menuCloneQc()}
@@ -3222,6 +3246,9 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         </button>
         <button class="menu-action-btn {showCodesignPanel ? 'active' : ''}" style="color: var(--pix-accent);" onclick={() => showCodesignPanel = !showCodesignPanel}>
           <Sparkles size={12} /> {m.tabCodesignPareto()}
+        </button>
+        <button class="menu-action-btn {showScriptPanel ? 'active' : ''}" data-testid="gene-menu-scripts" style="color: var(--pix-green);" onclick={() => showScriptPanel = !showScriptPanel}>
+          <Terminal size={12} /> {m.scriptMenu()}
         </button>
         <div class="menu-divider"></div>
         <button class="menu-action-btn {showAnnealPanel ? 'active' : ''}" onclick={() => showAnnealPanel = !showAnnealPanel}>
@@ -3991,6 +4018,38 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     </div>
   {/if}
 
+  {#if showScriptPanel}
+    <div use:drag={'.panel-header'} class="floating-panel pix-panel" data-testid="script-window" style="position: absolute; left: 250px; top: 78px; width: min(780px, calc(100vw - 40px)); max-height: calc(100vh - 120px); overflow: auto; z-index: 69;">
+      <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <strong><Terminal size={12} /> {m.scriptTitle()}</strong>
+        <button class="pix-btn-reset" type="button" onclick={() => showScriptPanel = false} aria-label={m.close()} style="color:var(--pix-red);">[X]</button>
+      </div>
+      <ScriptPanel
+        dnaSeq={dnaSeq}
+        docName={plasmidName}
+        topology={linear ? 'linear' : 'circular'}
+        features={scriptFeatures}
+        onApplyPatch={applyScriptPatch}
+      />
+    </div>
+  {/if}
+
+  {#if showBlastPanel}
+    <div use:drag={'.panel-header'} class="floating-panel pix-panel" data-testid="blast-window" style="position: absolute; left: 280px; top: 90px; width: min(720px, calc(100vw - 40px)); max-height: calc(100vh - 130px); overflow: auto; z-index: 68;">
+      <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <strong><Search size={12} /> {m.blastTitle()}</strong>
+        <button class="pix-btn-reset" type="button" onclick={() => showBlastPanel = false} aria-label={m.close()} style="color:var(--pix-red);">[X]</button>
+      </div>
+      <BlastPanel
+        getCurrentSequence={() => dnaSeq}
+        onLoadNucleotide={loadBlastNucleotideHit}
+        onSendProtein={sendBlastProteinHit}
+        pushLog={pushLog}
+        pushToast={pushToast}
+      />
+    </div>
+  {/if}
+
   <!-- ============ PRIMER MODIFIER PANEL ============ -->
   {#if showPrimerModifier}
     <div use:drag={'.panel-header'} class="floating-panel pix-panel" style="position: absolute; left: 340px; top: 350px; width: 320px; z-index: 60;">
@@ -4237,18 +4296,6 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       {plasmidName}
       {dnaSeq}
       {geneFeatures}
-      {pushLog}
-      {pushToast}
-    />
-  {/if}
-
-  <!-- ============ PRIMER LIMS-LITE INVENTORY PANEL ============ -->
-  {#if showPrimersLimsPanel}
-    <PrimerLimsPanel
-      bind:showPrimersLimsPanel
-      {drag}
-      bind:primerInventory
-      {dnaSeq}
       {pushLog}
       {pushToast}
     />

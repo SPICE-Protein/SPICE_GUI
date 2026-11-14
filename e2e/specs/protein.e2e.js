@@ -69,6 +69,31 @@ describe('Protein workstation', () => {
     await expect(textarea).toHaveValue('ACDEFGHIKLMNPQRSTVWY');
   });
 
+  it('declares folding-provider capabilities in the UI', async () => {
+    const provider = await expectTestId('fold-provider');
+    // The embedded driver's select commands do not fire `change`, so drive the
+    // native select explicitly.
+    await browser.execute(() => {
+      const select = document.querySelector('[data-testid="fold-provider"]');
+      select.value = 'swissmodel';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // SWISS-MODEL ignores environment parameters and needs an API token.
+    await expectTestId('fold-env-note');
+    await expectTestId('fold-token');
+
+    await browser.execute(() => {
+      const select = document.querySelector('[data-testid="fold-provider"]');
+      select.value = 'spice';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await browser.waitUntil(
+      async () => !(await $('[data-testid="fold-env-note"]').isExisting()),
+      { timeout: 10000, timeoutMsg: 'environment note stayed after switching back to SPICE' },
+    );
+  });
+
   it('imports a real PDB structure', async () => {
     await uploadTo('protein-pdb-input', './e2e/fixtures/1CRN.pdb');
     const log = await $('.log');

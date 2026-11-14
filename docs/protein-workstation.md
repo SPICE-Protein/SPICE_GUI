@@ -28,8 +28,9 @@ The top menus are **FILE**, **MODELING & SIMULATION**, **MUTATION & DESIGN**, an
 
 1. Choose one of the examples from the unlabelled selector, or paste a one-letter amino-acid sequence into **Enter amino acid sequence (1-letter code)…**.
 2. Check the residue count shown below the box. The input is limited to 1024 residues and accepts the standard 20 amino acids plus `U`.
-3. Set **pH 7.0**, **T 310 K**, and **Ionic strength 0.00 M** to match the condition you want to model. Pressure is fixed at 1 bar in the current build.
-4. Click **Fold**. The button changes to **Folding…** while inference runs.
+3. Pick a backend in **Model**. The default **SPICE** backend runs locally; **SWISS-MODEL** submits a remote homology job; **Demo** produces synthetic coordinates for previews and tests. See [Choose a folding backend](#choose-a-folding-backend).
+4. Set **pH 7.0**, **T 310 K**, and **Ionic strength 0.00 M** to match the condition you want to model. Pressure is fixed at 1 bar in the current build. These sliders are disabled when the selected backend does not accept environment parameters.
+5. Click **Fold**. The button changes to **Folding…** while inference runs.
 
 > Paste only the sequence. The parser strips non-letter characters, but a pasted FASTA header can still contribute letters to the sequence. Remove headers and annotation lines first.
 
@@ -55,7 +56,25 @@ The viewer receives Cα coordinates only. The **Cartoon**, **Ball & stick**, and
 
 > Heads B, B′, C, and D are random in the pretraining checkpoint. Do not present the mutation probabilities, the design conformation, the recommended environment offset, or the confidence bars as trained predictions. Head A and the distogram are the outputs to inspect in this build.
 
-### 2.3 Model missing
+### 2.3 Choose a folding backend
+
+The **Model** selector switches the folding provider. Each provider declares what it can actually deliver, and the UI adapts instead of promising data the backend cannot produce.
+
+| Backend | Runs | Environment parameters | Mutant head | Distogram / contacts | Mutation probabilities | Token | Typical use |
+|---|---|---|---|---|---|---|---|
+| **SPICE** | Local ONNX ensemble through the Tauri backend | Yes (pH, T, ionic strength) | Yes | Yes | Yes | No | Condition-dependent folding with the bundled model |
+| **SWISS-MODEL** | Remote Modelling API | No | No | Derived from coordinates only | No | Yes | A real structure while the SPICE coordinate head is still in training |
+| **Demo** | In-app synthetic generator | Yes | Yes | Yes | Yes | No | UI previews and end-to-end tests |
+
+When the selected backend does not support environment parameters, the sliders are disabled and a note under the selector states that the structure is predicted under the service defaults. The choice is remembered across sessions.
+
+**Using SWISS-MODEL.** Select **SWISS-MODEL**, paste a free SWISS-MODEL API token into the token field, set the sequence, and click **Fold**. The job is submitted to `https://swissmodel.expasy.org`, polled until it finishes, and the returned PDB Cα trace is loaded into the viewer. Progress appears under the Fold button as submitting, waiting, or fetching coordinates. The token is stored in this browser profile's local storage; it is sent only to the SWISS-MODEL endpoint.
+
+> SWISS-MODEL returns a homology model, not an environment-conditioned prediction. The distogram and contact map shown for a SWISS-MODEL result are derived from its Cα coordinates, and the mutation and confidence heads are unavailable. The SPICE-specific Head B–D panels stay empty. Treat the result as a structural template, not as SPICE model output.
+
+> The SWISS-MODEL API does not send CORS headers. In the desktop build the request goes through the bundled HTTP bridge; in a plain browser the call fails and the app reports the network error.
+
+### 2.4 Model missing
 
 If the ONNX checkpoint is not configured, the Fold tab shows an **ONNX** alert with the backend error instead of a result. Open **Settings → General Settings → ONNX NEURAL NETWORK MODEL**, point the app at a local checkpoint, or use the cloud download when it is available. The app does not fabricate a successful result in the desktop build; in browser demo mode a `Demo data` chip marks synthetic output.
 

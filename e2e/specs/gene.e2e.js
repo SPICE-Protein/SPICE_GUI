@@ -36,7 +36,6 @@ const TOGGLE_PANELS = [
   ['gene-menu-cloning', 'Vector template assembly'],
   ['gene-menu-cloning', 'CRISPR Design Cabin'],
   ['gene-menu-cloning', 'Reaction Calculators'],
-  ['gene-menu-cloning', 'Primer Inventory LIMS'],
   ['gene-menu-cloning', 'Synthetic Gene Designer QC'],
   ['gene-menu-cloning', 'NGS & Genomics Engine'],
   ['gene-menu-cloning', 'Advanced Cloning & Markers'],

@@ -1,6 +1,6 @@
 # SPICE GUI: Laboratory Guide Overview
 
-**Applies to:** SPICE GUI v0.1.0 (Windows, macOS, Linux; Android build available)
+**Applies to:** SPICE GUI v0.2.0 (Windows, macOS, Linux; Android build available)
 
 **Audience:** bench scientists, lab managers, and students who need to design constructs, record experiments, analyse gels and blots, and assemble figures without sending data to a server.
 
@@ -18,6 +18,8 @@ This page is the map. Each workspace has a detailed manual; start here, then fol
 | Learn every Gene Editor menu, panel, and design workflow | [Gene Editor](gene-editor.md) |
 | Fold, import, simulate, scan, or mutate a protein | [Protein Workstation](protein-workstation.md) |
 | Archive documents, write a journal, sign an ELN, use Presenter | [Project Hub](project-hub.md) |
+| Track strains, plasmids, primers, reagents, and protocol runs | [Lab Operations](lab-operations.md) |
+| Automate sequence analysis with local Lua scripts | [Lua Scripting](scripting.md) |
 | Quantify gels, blots, qPCR, plates, colonies, microscopy, trees, figures | [Bench tools](tools/README.md) |
 | Configure language, theme, models, SPD, ORCID, databases, keys | [Settings](settings.md) |
 | Use the optional assistant and its approval model | [AI Co-Pilot](ai-copilot.md) |
@@ -33,6 +35,7 @@ The bench-tool pages are listed individually in [Bench tools](tools/README.md): 
 | **Gene Editor** | Maps, sequence editing, features, restriction digests, primers, PCR, cloning, CRISPR, codon usage, QC, ELN pages. | [Gene Editor](gene-editor.md) |
 | **Protein Workstation** | Fold, import PDB/mmCIF, short MD verification, stability scans, pocket analysis, mutation design, high-throughput screening. | [Protein Workstation](protein-workstation.md) |
 | **Project Hub** | One `.spiceproj` file with embedded gene, protein, and tool documents, journal pages, attachments, and presenter slides. | [Project Hub](project-hub.md) |
+| **Lab** | Inventory registry for strains, plasmids, primers, reagents, and samples; protocol templates, runs, and run sheets. | [Lab Operations](lab-operations.md) |
 | **Tools** | Eight focused bench editors for images, plates, counts, trees, and figures. | [Bench tools](tools/README.md) |
 | **Settings** | Language, theme, models, databases, ORCID, SPD, keymap, engine defaults. | [Settings](settings.md) |
 | **AI Co-Pilot** | Optional chat with workspace context, structured imports, and approval-gated tools. | [AI Co-Pilot](ai-copilot.md) |

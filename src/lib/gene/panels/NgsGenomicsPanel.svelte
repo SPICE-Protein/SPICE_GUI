@@ -3,6 +3,13 @@
 
   import { backend } from '$lib/backend/api';
   import { autoIdentifyAndRemoveAdapters, detectCrisprArrays } from '$lib/genome';
+  import {
+    callVariants,
+    extractReadsFromFastq,
+    mapReads,
+    type MappingResult,
+    type VariantCall,
+  } from '$lib/genome/ngs/mapping';
 
   let {
     showNgsGenomicsPanel = $bindable(false),
@@ -18,9 +25,46 @@
     pushToast: (type: any, title: string, text?: string) => void;
   }>();
 
-  let ngsTab = $state<'fastq_qc' | 'trimmer' | 'orf_gene' | 'crispr'>('fastq_qc');
+  let ngsTab = $state<'fastq_qc' | 'trimmer' | 'orf_gene' | 'crispr' | 'mapping'>('fastq_qc');
   let fastqInputText = $state(`@SEQ_ID\nGATCGGAAGAGCACACGTCTGAACTCCAGTCAC\n+\n!''*((((***+))%%%++)(%%%%).1***-\n@SEQ_ID2\nAGATCGGAAGAGCACACGTCTGAACTCCAGTCA\n+\nI!IIIIIIIIIIIIIIIIIIIIIIIIIIIIIII`);
   let trimmerAdapterInput = $state('');
+
+  // Read mapping against the open sequence (reference) + SNV calling.
+  let mappingFastq = $state('');
+  let mappingMinIdentity = $state(0.9);
+  let mappingResult = $state<MappingResult | null>(null);
+  let mappingVariants = $state<VariantCall[]>([]);
+  let mappingError = $state<string | null>(null);
+
+  function runMapping() {
+    mappingError = null;
+    mappingResult = null;
+    mappingVariants = [];
+    const reference = dnaSeq.trim();
+    if (!reference) {
+      mappingError = m.ngsMappingNoReference();
+      return;
+    }
+    if (!mappingFastq.trim()) {
+      mappingError = m.ngsMappingNoReads();
+      return;
+    }
+    const reads = extractReadsFromFastq(mappingFastq);
+    if (reads.length === 0) {
+      mappingError = m.ngsMappingNoReads();
+      return;
+    }
+    try {
+      const result = mapReads(reference, reads, { minIdentity: mappingMinIdentity });
+      mappingResult = result;
+      mappingVariants = callVariants(reference, result.mappings, reads);
+      pushLog(
+        m.ngsMappingLog({ reads: reads.length, mapped: result.mappings.length, variants: mappingVariants.length })
+      );
+    } catch (error) {
+      mappingError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   // Reactively compute FASTQ QC using rust-bio backend (with TS fallback)
   let fastqReport = $state<any>(null);
@@ -92,6 +136,7 @@
     <button class="pix-btn {ngsTab === 'trimmer' ? 'ok' : ''}" onclick={() => ngsTab = 'trimmer'} style="flex: 1; padding: 2px; font-size: 8px;">{m.tabNgsTrimmer()}</button>
     <button class="pix-btn {ngsTab === 'orf_gene' ? 'ok' : ''}" onclick={() => ngsTab = 'orf_gene'} style="flex: 1.2; padding: 2px; font-size: 8px;">{m.tabNgsOrf()}</button>
     <button class="pix-btn {ngsTab === 'crispr' ? 'ok' : ''}" onclick={() => ngsTab = 'crispr'} style="flex: 1; padding: 2px; font-size: 8px;">{m.tabNgsCrispr()}</button>
+    <button class="pix-btn {ngsTab === 'mapping' ? 'ok' : ''}" onclick={() => ngsTab = 'mapping'} style="flex: 1; padding: 2px; font-size: 8px;">{m.tabNgsMapping()}</button>
   </div>
 
   <div style="flex: 1; overflow-y: auto; font-size: 10px; display: flex; flex-direction: column; gap: 5px; padding-right: 2px;">
@@ -205,6 +250,56 @@
             <div class="pix-dim" style="text-align: center; padding: 25px 0;">{m.ngsNoCrisprFound()}</div>
           {/each}
         </div>
+      </div>
+
+    <!-- TAB 5: READ MAPPING + VARIANT CALLING -->
+    {:else if ngsTab === 'mapping'}
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <div class="pix-dim" style="font-weight: bold; color: var(--pix-cyan);">{m.ngsMappingTitle()}</div>
+        <div class="pix-dim" style="font-size: 8.5px;">{m.ngsMappingReference({ length: dnaSeq.trim().length })}</div>
+        <textarea class="pix-input mono" bind:value={mappingFastq} placeholder={m.ngsMappingFastqPlaceholder()} rows={4}
+          style="font-size: 8px; line-height: 1.25; resize: vertical;"></textarea>
+        <label style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="pix-dim">{m.ngsMappingMinIdentity()}</span>
+          <input class="pix-input" type="number" min="0.5" max="1" step="0.01" bind:value={mappingMinIdentity}
+            style="width: 58px; font-size: 9px; height: 18px;" />
+        </label>
+        <button class="pix-btn ok" onclick={runMapping} style="padding: 3px; font-weight: bold; font-size: 9.5px;">
+          {m.ngsMappingRun()}
+        </button>
+
+        {#if mappingError}
+          <div style="color: var(--pix-red); font-size: 9px; line-height: 1.4;">{mappingError}</div>
+        {/if}
+
+        {#if mappingResult}
+          <div class="pix-panel" style="padding: 5px; border-color: var(--pix-border); background: rgba(0,0,0,0.25); line-height: 1.4; display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span>{m.ngsMappingMapped()}</span>
+              <span class="pix-num" style="color: var(--pix-green);">{mappingResult.mappings.length}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>{m.ngsMappingUnmapped()}</span>
+              <span class="pix-num" style="color: {mappingResult.unmapped > 0 ? 'var(--pix-accent)' : 'var(--pix-green)'};">{mappingResult.unmapped}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>{m.ngsMappingVariants()}</span>
+              <span class="pix-num" style="color: var(--pix-cyan);">{mappingVariants.length}</span>
+            </div>
+          </div>
+
+          <div style="max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.15); padding: 3px; border-radius: 3px; display: flex; flex-direction: column; gap: 2px;">
+            {#each mappingVariants as variant (variant.position + variant.ref + variant.alt)}
+              <div class="mono" style="display: flex; justify-content: space-between; font-size: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 2px 3px;">
+                <span style="color: var(--pix-accent-2);">{variant.position + 1} {variant.ref}&gt;{variant.alt}</span>
+                <span class="pix-dim">×{variant.depth}</span>
+                <span style="color: var(--pix-cyan);">AF {(variant.alleleFrequency * 100).toFixed(0)}%</span>
+              </div>
+            {:else}
+              <div class="pix-dim" style="text-align: center; padding: 12px 0; font-size: 9px;">{m.ngsMappingNoVariants()}</div>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
   </div>

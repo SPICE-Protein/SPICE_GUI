@@ -8,6 +8,7 @@ mod gelgenie;
 mod spice;
 mod cloning;
 mod spd;
+mod net;
 mod ai;
 mod mcp;
 
@@ -40,6 +41,8 @@ pub fn run() {
             spd::spd_request,
             spd::spd_put_bytes,
             spd::model_sha256,
+            // external sequence-database transport (BLAST / UniProt)
+            net::http_request,
             // AI provider transport (CORS-free fallback)
             ai::ai_chat_native,
             ai::ai_get_native,

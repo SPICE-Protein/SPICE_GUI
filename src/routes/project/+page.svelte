@@ -14,6 +14,7 @@
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import { backend } from '$lib/backend/api';
   import { projectStore, MAX_PROJECT_FILE_BYTES } from '$lib/project/store.svelte.ts';
+  import { protocolStore } from '$lib/protocol/store.svelte.ts';
   import { hasSlides } from '$lib/project/slides';
   import type { ProjectDocKind, ProjectFileEntry, ToolDocKind } from '$lib/project/types';
   import { TOOL_DOC_KINDS } from '$lib/project/types';
@@ -52,7 +53,8 @@
     ImagePlus,
     GitBranch,
     Shapes,
-    ImageDown
+    ImageDown,
+    ClipboardList
   } from 'lucide-svelte';
 
   let openProjectFile = $state<HTMLInputElement | undefined>();
@@ -86,8 +88,72 @@
   const pj = $derived(projectStore.current);
   const pages = $derived(projectStore.activePages);
   const activePage = $derived(projectStore.activeJournalPage);
+
+  // Protocol run attached to the active journal page.
+  let runPickerOpen = $state(false);
+  let runTemplateId = $state('');
+  let runOperator = $state('');
+  let runParamValues = $state<Record<string, string | number | boolean>>({});
+  const linkedRun = $derived(
+    activePage?.protocolRunId ? protocolStore.getRun(activePage.protocolRunId) : null,
+  );
+  const runTemplate = $derived(
+    runTemplateId ? protocolStore.getTemplate(runTemplateId) : null,
+  );
+
+  function openRunPicker() {
+    const first = protocolStore.templates[0];
+    runTemplateId = first?.id ?? '';
+    runOperator = '';
+    runParamValues = {};
+    if (first) selectRunTemplate(first.id);
+    runPickerOpen = true;
+  }
+
+  function selectRunTemplate(id: string) {
+    runTemplateId = id;
+    const template = protocolStore.getTemplate(id);
+    runParamValues = {};
+    for (const parameter of template?.parameters ?? []) {
+      runParamValues[parameter.key] = parameter.defaultValue;
+    }
+  }
+
+  function createJournalRun() {
+    if (!activePage || !pj) return;
+    const template = protocolStore.getTemplate(runTemplateId);
+    if (!template) {
+      pushToast('error', m.protoNoTemplatesTitle(), m.protoNoTemplatesBody());
+      return;
+    }
+    const run = protocolStore.createRun(template, runParamValues, {
+      projectId: pj.meta.id,
+      projectName: pj.meta.name,
+      journalPageId: activePage.id,
+      operator: runOperator.trim(),
+    });
+    projectStore.updateJournalMeta(activePage.id, { protocolRunId: run.id });
+    runPickerOpen = false;
+    pushToast('success', m.protoRunCreatedTitle(), template.name);
+  }
+
+  function openLinkedRun() {
+    if (!linkedRun) return;
+    void goto(`/lab?tab=protocols&run=${encodeURIComponent(linkedRun.id)}`);
+  }
+
   const toolKinds = TOOL_DOC_KINDS;
   let toolCaptureKind = $state<ToolDocKind>('gel');
+
+  function runStatusLabel(status: string): string {
+    switch (status) {
+      case 'planned': return m.protoStatusPlanned();
+      case 'running': return m.protoStatusRunning();
+      case 'completed': return m.protoStatusCompleted();
+      case 'aborted': return m.protoStatusAborted();
+      default: return status;
+    }
+  }
 
   function toolTitle(kind: ToolDocKind): string {
     switch (kind) {
@@ -614,6 +680,18 @@
             </select>
             <input class="jm-tags" data-testid="project-journal-tags" placeholder={m.projectJournalTags()} bind:value={tagsBuf} />
             <span class="jm-date pix-dim">{activePage?.date}</span>
+            {#if linkedRun}
+              <button class="jm-run" data-testid="project-linked-run" onclick={openLinkedRun} title={m.protoOpenRun()}>
+                <ClipboardList size={11} />
+                <span>{linkedRun.templateName}</span>
+                <span class="pix-dim">{runStatusLabel(linkedRun.status)}</span>
+              </button>
+            {:else}
+              <button class="jm-run" data-testid="project-start-run" onclick={openRunPicker}>
+                <ClipboardList size={11} />
+                <span>{m.protoLinkRun()}</span>
+              </button>
+            {/if}
             <span class="tb-spacer"></span>
             <button class="pix-btn ok" data-testid="project-presenter" disabled={!activePage || !hasSlides(mdBuf)}
               onclick={() => (presenterOpen = true)} title={m.projectPresenterHint()}>
@@ -661,6 +739,66 @@
         <button class="pix-btn-reset danger-text" onclick={doClose}>{m.projectCloseBtn()}</button>
         <button class="pix-btn-reset" onclick={() => (showCloseConfirm = false)}>{m.projectPresenterExit()}</button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if runPickerOpen}
+  <div class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-box new-proj-box run-picker-box" data-testid="project-run-modal">
+      <div class="modal-title">{m.protoRunTitle()}</div>
+      {#if protocolStore.templates.length === 0}
+        <div class="modal-desc">{m.protoNoTemplatesBody()}</div>
+        <div class="modal-btns">
+          <button class="pix-btn ok" onclick={() => { runPickerOpen = false; void goto('/lab?tab=protocols'); }}>{m.protoNewTemplate()}</button>
+          <button class="pix-btn-reset" onclick={() => (runPickerOpen = false)}>{m.projectPresenterExit()}</button>
+        </div>
+      {:else}
+        <label class="rp-field">
+          <span class="rp-label">{m.protoName()}</span>
+          <select class="pix-input" data-testid="project-run-template" value={runTemplateId}
+            onchange={(e) => selectRunTemplate((e.currentTarget as HTMLSelectElement).value)}>
+            {#each protocolStore.templates as template (template.id)}
+              <option value={template.id}>{template.name}</option>
+            {/each}
+          </select>
+        </label>
+        {#if runTemplate}
+          {#if runTemplate.description}
+            <div class="modal-desc">{runTemplate.description}</div>
+          {/if}
+          {#each runTemplate.parameters as parameter (parameter.key)}
+            <label class="rp-field">
+              <span class="rp-label">{parameter.label}{parameter.unit ? ` (${parameter.unit})` : ''}</span>
+              {#if parameter.type === 'boolean'}
+                <input type="checkbox" checked={Boolean(runParamValues[parameter.key])}
+                  onchange={(e) => (runParamValues[parameter.key] = (e.currentTarget as HTMLInputElement).checked)} />
+              {:else if parameter.type === 'select'}
+                <select class="pix-input" value={String(runParamValues[parameter.key] ?? '')}
+                  onchange={(e) => (runParamValues[parameter.key] = (e.currentTarget as HTMLSelectElement).value)}>
+                  {#each parameter.options ?? [] as option (option)}
+                    <option value={option}>{option}</option>
+                  {/each}
+                </select>
+              {:else if parameter.type === 'number'}
+                <input class="pix-input" type="number" value={String(runParamValues[parameter.key] ?? '')}
+                  oninput={(e) => (runParamValues[parameter.key] = Number((e.currentTarget as HTMLInputElement).value))} />
+              {:else}
+                <input class="pix-input" value={String(runParamValues[parameter.key] ?? '')}
+                  oninput={(e) => (runParamValues[parameter.key] = (e.currentTarget as HTMLInputElement).value)} />
+              {/if}
+            </label>
+          {/each}
+        {/if}
+        <label class="rp-field">
+          <span class="rp-label">{m.protoOperator()}</span>
+          <input class="pix-input" data-testid="project-run-operator" bind:value={runOperator} />
+        </label>
+        <div class="modal-btns">
+          <button class="pix-btn ok" data-testid="project-run-start" onclick={createJournalRun} disabled={!runTemplate}>{m.protoRunStart()}</button>
+          <button class="pix-btn-reset" onclick={() => (runPickerOpen = false)}>{m.projectPresenterExit()}</button>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -888,6 +1026,15 @@
   .jm-cat { width: 106px; }
   .jm-tags { width: 150px; }
   .jm-date { font-size: 9.5px; }
+  .jm-run {
+    display: inline-flex; align-items: center; gap: 4px; font-family: var(--pix-font);
+    font-size: 10px; font-weight: bold; color: var(--pix-cyan); background: var(--pix-bg-3);
+    border: 2px dashed var(--pix-border-hi); padding: 2px 7px; cursor: pointer;
+  }
+  .jm-run:hover { border-style: solid; border-color: var(--pix-cyan); box-shadow: 0 0 6px rgba(76, 214, 255, 0.25); }
+
+  .run-picker-box .rp-field { display: flex; flex-direction: column; gap: 3px; }
+  .run-picker-box .rp-label { font-size: 10px; font-weight: bold; color: var(--pix-fg-dim); }
 
   .jarea { flex: 1; min-height: 0; overflow: hidden; background: var(--pix-bg); display: flex; flex-direction: column; }
   /* Crepe fills the main area, and .milkdown itself is the scroll layer
