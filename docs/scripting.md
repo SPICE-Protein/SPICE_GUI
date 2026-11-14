@@ -1,6 +1,6 @@
 # Lua Scripting
 
-**Applies to:** SPICE GUI v0.2.0
+**Applies to:** SPICE GUI v0.3.0
 
 The Gene Editor embeds a Lua 5.4 interpreter so repetitive analysis can be scripted without leaving the app. Scripts run locally in a Web Worker, read the open document, and return a table of results. They can also propose a new sequence or plasmid name, but that change is never applied automatically: you review it and click **Apply to document**.
 
