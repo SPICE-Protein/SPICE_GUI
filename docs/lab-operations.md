@@ -1,6 +1,6 @@
 # Lab Operations
 
-**Applies to:** SPICE GUI v0.3.0
+**Applies to:** SPICE GUI v0.4.0
 
 The **Lab** workspace records what is physically in the lab and what was done with it. It has two tabs: **Inventory** for strains, plasmids, primers, reagents, and samples, and **Protocols** for reusable protocol templates and the runs executed from them. Both are local-first and export as portable JSON.
 

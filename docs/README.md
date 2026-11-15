@@ -2,7 +2,7 @@
 
 SPICE GUI is a local-first desktop workbench for gene editing, protein work, and bench analysis. This documentation is a task-oriented manual: each page explains the interface, the workflow, the exports, and the limits.
 
-**Version:** matches SPICE GUI v0.3.0. The interface is available in Simplified Chinese, English, Japanese, Korean, German, Dutch, and Swedish. Screenshots use English, and labels in the manual match the English UI.
+**Version:** matches SPICE GUI v0.4.0. The interface is available in Simplified Chinese, English, Japanese, Korean, German, Dutch, and Swedish. Screenshots use English, and labels in the manual match the English UI.
 
 ## Start here
 
