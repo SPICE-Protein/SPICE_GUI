@@ -66,6 +66,8 @@
   let searched = $state(false);
   let listError = $state('');
   let loadBusyId = $state('');
+  /** gene id → encoded protein label, filled by one graph query per search. */
+  let rowProteins = $state<Record<string, string>>({});
 
   function rowName(row: SpdGeneListRow): string {
     return row.symbol || row.name || m.spdGeneUnnamed();
@@ -118,15 +120,42 @@
     }
   }
 
+  /** One graph read hydrates the visible rows with the protein each gene
+   *  encodes. It is a supplement to the list: a failure leaves the rows as
+   *  they are instead of turning the search into an error. */
+  async function hydrateProteins(rows: SpdGeneListRow[]) {
+    if (!rows.length) { rowProteins = {}; return; }
+    try {
+      const data = await configureSpdClient().graphQuery({
+        roots: rows.slice(0, 25).map((row) => ({
+          type: 'gene', id: row.id, select: ['id'],
+          expand: { proteins: { select: ['id', 'preferredName', 'geneName'], limit: 1 } },
+        })),
+      });
+      const map: Record<string, string> = {};
+      for (const node of data.results) {
+        const proteins = (node as { proteins?: Array<Record<string, unknown>> }).proteins;
+        const protein = Array.isArray(proteins) ? proteins[0] : undefined;
+        const label = protein && (protein.preferredName ?? protein.geneName ?? protein.id);
+        if (node.id && label) map[node.id] = String(label);
+      }
+      rowProteins = map;
+    } catch {
+      rowProteins = {};
+    }
+  }
+
   async function query() {
     rowsBusy = true;
     listError = '';
     searched = false;
+    rowProteins = {};
     try {
       const client = configureSpdClient();
       const q = searchQ.trim();
       rows = q ? await client.searchGenes(q) : await client.listGenes();
       searched = true;
+      void hydrateProteins(rows);
     } catch (error) {
       listError = error instanceof Error ? error.message : String(error);
       rows = [];
@@ -420,6 +449,9 @@
               <div class="gene-main">
                 <span class="gene-name">{rowName(row)}</span>
                 <span class="pix-dim">{row.geneType || m.spdGeneTypeOther()} · {rowOrganism(row)}{rowLength(row) ? ` · ${rowLength(row)}` : ''}</span>
+                {#if rowProteins[row.id]}
+                  <span class="gene-protein" title={rowProteins[row.id]}>→ {rowProteins[row.id]}</span>
+                {/if}
               </div>
               <button class="pix-btn" data-testid="spd-gene-load" type="button" disabled={loadBusyId !== ''} onclick={() => load(row)}>
                 {loadBusyId === row.id ? m.spdGeneListLoading() : m.spdGeneLoadBtn()}
@@ -555,6 +587,7 @@
   .gene-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .gene-name { color: var(--pix-cyan); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gene-main .pix-dim { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gene-protein { color: var(--pix-cyan); font-size: 8.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .empty { padding: 3px 1px; }
   .mine-list { max-height: 300px; }
   .type-chip { font-size: 8.5px; border: 1px solid var(--pix-border); padding: 1px 4px; }

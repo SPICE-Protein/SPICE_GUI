@@ -19,7 +19,8 @@ import type {
   SpdEnzymeExport, SpdEnvironmentInput, SpdErrorBody, SpdFoldInput, SpdFoldQuery,
   SpdFoldRecord, SpdFoldSummary, SpdGeneCreateReceipt, SpdGeneInput, SpdGeneListRow,
   SpdGeneRecord, SpdGeneRegion, SpdGeneRegionBatchReceipt, SpdGeneRegionInput,
-  SpdGraphData, SpdGraphQuery, SpdHealth, SpdModelInput, SpdProteinInput,
+  SpdFoldHistory, SpdGraphData, SpdGraphQuery, SpdHealth, SpdLineageResult, SpdModelInput,
+  SpdProvenanceSnapshot, SpdProteinInput, SpdRelationsResult, SpdSequenceTree,
   SpdRestrictionEnzymeList, SpdRestrictionEnzymeRow, SpdSequenceInput, SpdUploadGrant, SpdUserMe,
   SpdVectorDesign, SpdVectorDetail, SpdVectorReceipt, SpdVectorSummary, SpdVectorValidation,
 } from './types';
@@ -126,6 +127,118 @@ export class SpdClient {
   queryFolds(query: SpdFoldQuery) { return this.http<SpdFoldSummary[]>('POST', '/folds/query', query); }
   /** Graph DSL batch read — roots walk registered edges in one metered call. */
   graphQuery(query: SpdGraphQuery) { return this.http<SpdGraphData>('POST', '/query', query); }
+
+  // ─── Graph reads around one record ───
+  // `entityType` is the SPD catalog type, not the inspector label: enzymes are
+  // `restriction-enzyme`, vectors are `vector`, and sequences are `sequence`.
+  // The server resolves `other` to a display label, so a relation chip can be
+  // rendered without a follow-up read.
+  async entityRelations(
+    entityType: string, id: string,
+    filters: { direction?: 'in' | 'out'; relationType?: string } = {},
+  ): Promise<SpdRelationsResult> {
+    const params = new URLSearchParams();
+    if (filters.direction) params.set('direction', filters.direction);
+    if (filters.relationType) params.set('relation_type', filters.relationType);
+    const qs = params.toString();
+    const payload = await this.http<SpdRelationsResult | { entity?: SpdRelationsResult['entity']; relations?: SpdRelationsResult['relations'] }>(
+      'GET', `/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}/relations${qs ? `?${qs}` : ''}`,
+    );
+    return {
+      entity: payload.entity ?? { id, type: entityType },
+      relations: Array.isArray(payload.relations) ? payload.relations : [],
+    };
+  }
+
+  /** Ancestor chain (root first). Sequences have a dedicated endpoint that
+   *  returns `{nodes, edges}` with the aligned sequence on each node; the
+   *  generic /entities/…/lineage route answers with the entity dossier
+   *  instead, so it is not used here.
+   */
+  async entityLineage(entityType: string, id: string): Promise<SpdLineageResult> {
+    const path = entityType === 'sequence'
+      ? `/sequences/${encodeURIComponent(id)}/lineage`
+      : `/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}/lineage`;
+    const payload = await this.http<SpdLineageResult | { nodes?: SpdLineageResult['nodes']; edges?: SpdLineageResult['edges']; rootSequenceId?: string }>('GET', path);
+    return {
+      rootSequenceId: payload.rootSequenceId,
+      nodes: Array.isArray(payload.nodes) ? payload.nodes : [],
+      edges: Array.isArray(payload.edges) ? payload.edges : [],
+    };
+  }
+
+  /** Fold → sequence/environment/model in one graph read. Returns null when
+   *  the DSL rejects the root or returns no expanded node, so the caller can
+   *  fall back to the three REST reads instead of failing the inspector. */
+  async graphFoldContext(id: string): Promise<{
+    sequence: Record<string, unknown> | null;
+    environment: Record<string, unknown> | null;
+    model: Record<string, unknown> | null;
+  } | null> {
+    const object = (value: unknown) =>
+      value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    try {
+      const data = await this.graphQuery({
+        root: {
+          type: 'fold', id, select: ['id'],
+          expand: {
+            sequence: { select: ['id', 'length', 'sequenceRole', 'proteinId', 'sha256'] },
+            environment: { select: ['ph', 'temperatureK', 'pressureBar', 'ionicStrengthM', 'protonationModel'] },
+            model: { select: ['modelName', 'modelVersion', 'inferenceRuntime', 'inferenceCodeVersion', 'checkpointSha256'] },
+          },
+        },
+      });
+      const node = data.results[0] as Record<string, unknown> | undefined;
+      if (!node) return null;
+      const context = {
+        sequence: object(node.sequence),
+        environment: object(node.environment),
+        model: object(node.model),
+      };
+      return context.sequence || context.environment || context.model ? context : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Descendant mutation tree rooted at the sequence. */
+  async sequenceTree(id: string): Promise<SpdSequenceTree> {
+    const payload = await this.http<Partial<SpdSequenceTree>>('GET', `/sequences/${encodeURIComponent(id)}/tree`);
+    return {
+      rootSequenceId: payload.rootSequenceId,
+      nodeCount: typeof payload.nodeCount === 'number' ? payload.nodeCount : 0,
+      maxDepth: typeof payload.maxDepth === 'number' ? payload.maxDepth : 0,
+      nodes: Array.isArray(payload.nodes) ? payload.nodes : [],
+      edges: Array.isArray(payload.edges) ? payload.edges : [],
+    };
+  }
+
+  /** Everything attached to a fold in one read: validations, observed
+   *  structures, MD verifications, stability scans, pocket analyses and
+   *  assessments. The per-part POST routes are submission doors, not lists. */
+  async foldHistory(id: string): Promise<SpdFoldHistory> {
+    const payload = await this.http<SpdFoldHistory>('GET', `/folds/${encodeURIComponent(id)}/history`);
+    const list = (value: unknown) => (Array.isArray(value) ? value : []);
+    return {
+      foldId: payload.foldId,
+      validations: list(payload.validations),
+      observedStructures: list(payload.observedStructures),
+      mdVerifications: list(payload.mdVerifications),
+      stabilityScans: list(payload.stabilityScans),
+      pocketAnalyses: list(payload.pocketAnalyses),
+      assessments: list(payload.assessments),
+      prediction: payload.prediction,
+    };
+  }
+
+  /** Raw upstream payloads filed against a record. Public read. */
+  async provenanceSnapshots(entityType: string, id: string): Promise<SpdProvenanceSnapshot[]> {
+    const payload = await this.http<{ snapshots?: SpdProvenanceSnapshot[] } | SpdProvenanceSnapshot[]>(
+      'GET', `/provenance/snapshots/by-entity/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}`,
+    );
+    if (Array.isArray(payload)) return payload;
+    return Array.isArray(payload?.snapshots) ? payload.snapshots : [];
+  }
   async getFold(id: string) {
     const payload = await this.http<{ fold: SpdFoldRecord } | SpdFoldRecord>('GET', `/folds/${encodeURIComponent(id)}`);
     return unwrapKey<SpdFoldRecord>(payload, 'fold');

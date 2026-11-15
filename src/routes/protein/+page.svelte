@@ -22,11 +22,12 @@
   import { localizeInline } from '$lib/i18nMsg';
   import { currentLocale, toggleLang } from '$lib/i18n.svelte.ts';
   import { aiState } from '$lib/ui/aiState.svelte.ts';
-  import { configureSpdClient, cachedProteinId, cachedSequenceId, cachedSequenceEntries, rememberProteinId, rememberSequenceId, lastProteinName, rememberProteinName } from '$lib/spd/store.svelte';
+  import { configureSpdClient, cachedProteinId, cachedSequenceId, cachedSequenceEntries, rememberProteinId, rememberSequenceId, lastSequenceForProtein, rememberSequenceForProtein, lastProteinName, rememberProteinName } from '$lib/spd/store.svelte';
+  import { substitutionDiff } from '$lib/spd/lineage';
   import { normalizeSequence, normalizeEnvironment, normalizeModel, sequenceSha256 } from '$lib/spd/normalize';
   import { SpdApiError, spdToken, SPD_INPUT_PROTOCOL_VERSION, SPD_INFERENCE_PROTOCOL_VERSION } from '$lib/spd/client';
   import { spdInspector } from '$lib/spd/inspector.svelte';
-  import type { SpdEnvironmentInput, SpdGraphFold, SpdGraphNode, SpdModelInput, SpdProteinInput } from '$lib/spd/types';
+  import type { SpdEnvironmentInput, SpdFoldHistory, SpdGraphFold, SpdGraphNode, SpdModelInput, SpdProteinInput } from '$lib/spd/types';
   import { parseMutantsCsv, evaluateMutantsBatch } from '$lib/genome';
   import { queryPdbRedo, queryBioLip } from '$lib/backend/externalDbs';
   import type { BioLipLigandBinding, PdbRedoMeta } from '$lib/backend/externalDbs';
@@ -136,6 +137,9 @@
   let spdBusy = $state(false);
   let spdMessage = $state<string | null>(null);
   let spdFoldId = $state<string | null>(null);
+  /** What SPD holds against the current fold: validations, observed
+   *  structures, MD verifications, stability scans, pockets, assessments. */
+  let spdEvidence = $state.raw<SpdFoldHistory | null>(null);
   let spdProteinName = $state(lastProteinName());
   let viewMutant = $state(false);
   let hoveredResidueIdx = $state<number | null>(null);
@@ -533,6 +537,27 @@ Variant_M5,I32L + L45M + L50M`);
     if (spdFoldId) spdInspector.open('fold', spdFoldId);
   }
 
+  function spdEvidenceCount(history: SpdFoldHistory | null): number {
+    if (!history) return 0;
+    return (history.validations?.length ?? 0)
+      + (history.observedStructures?.length ?? 0)
+      + (history.mdVerifications?.length ?? 0)
+      + (history.stabilityScans?.length ?? 0)
+      + (history.pocketAnalyses?.length ?? 0)
+      + (history.assessments?.length ?? 0);
+  }
+
+  /** Supplementary read: the fold panel stays usable when this fails. */
+  async function loadSpdEvidence(foldId: string) {
+    spdEvidence = null;
+    try {
+      const history = await configureSpdClient().foldHistory(foldId);
+      if (spdFoldId === foldId) spdEvidence = history;
+    } catch {
+      if (spdFoldId === foldId) spdEvidence = null;
+    }
+  }
+
   function spdEnvironment(): SpdEnvironmentInput {
     return normalizeEnvironment({ ph: env.ph, temperatureK: env.tempK, pressureBar: env.pressureBar, ionicStrengthM: env.ionicStrengthM });
   }
@@ -558,7 +583,7 @@ Variant_M5,I32L + L45M + L50M`);
     const sequence = cleanSeq(seq);
     const validation = validateSeq(sequence);
     if (validation) { spdMessage = validation; return; }
-    spdBusy = true; spdMessage = null; spdFoldId = null;
+    spdBusy = true; spdMessage = null; spdFoldId = null; spdEvidence = null;
     try {
       const sha = await sequenceSha256(sequence);
       const seqKey = sha.slice('sha256:'.length, 'sha256:'.length + 20);
@@ -613,6 +638,7 @@ Variant_M5,I32L + L45M + L50M`);
       }
       if (currentFolds.length) {
         spdFoldId = (matched ?? currentFolds[0]).id;
+        void loadSpdEvidence(spdFoldId);
         spdMessage = m.spdQueryHitCount({ v1: String(currentFolds.length) });
         if (matched) pushLog(`[SPD] Exact current-environment fold: ${matched.id}`);
       } else if (total) {
@@ -654,9 +680,39 @@ Variant_M5,I32L + L45M + L50M`);
       pushLog(`[SPD] ${m.spdStepSequence()}`);
       let sequenceId = cachedSequenceId(seqKey);
       if (!sequenceId) {
-        const seqReceipt = await client.createSequence({ proteinId, sequence: normalizeSequence(sequence), sha256: sha, license: 'CC-BY-4.0' });
+        // Re-publishing under the same protein links the new sequence to the
+        // previous one, so SPD can grow a mutation lineage instead of a flat
+        // list of roots. Only substitutions are declared: a length change is
+        // still published, just without a parent claim it cannot describe.
+        const previousId = lastSequenceForProtein(proteinId);
+        let parentSequenceId: string | undefined;
+        let mutations: ReturnType<typeof substitutionDiff> | undefined;
+        if (previousId) {
+          try {
+            const previous = await client.getSequence(previousId);
+            const previousSequence = typeof previous.sequence === 'string' ? previous.sequence : '';
+            const diff = substitutionDiff(previousSequence, sequence);
+            if (diff && diff.length) {
+              parentSequenceId = previousId;
+              mutations = diff;
+            }
+          } catch {
+            // A missing parent must not block publishing the sequence itself.
+          }
+        }
+        const seqReceipt = await client.createSequence({
+          proteinId, sequence: normalizeSequence(sequence), sha256: sha, license: 'CC-BY-4.0',
+          ...(parentSequenceId ? { parentSequenceId } : {}),
+          ...(mutations ? { mutations } : {}),
+        });
         sequenceId = spdReceiptId(seqReceipt, 'sequence');
         rememberSequenceId(seqKey, sequenceId);
+        rememberSequenceForProtein(proteinId, sequenceId);
+        if (parentSequenceId) {
+          pushLog(`[SPD] Sequence lineage ${parentSequenceId} → ${sequenceId} (${mutations?.length ?? 0} substitution(s))`);
+        }
+      } else {
+        rememberSequenceForProtein(proteinId, sequenceId);
       }
 
       // Fold-embedded identities: the MD simulation environment and the model
@@ -693,6 +749,7 @@ Variant_M5,I32L + L45M + L50M`);
       });
       const foldId = spdReceiptId(foldReceipt, 'fold');
       spdFoldId = foldId;
+      void loadSpdEvidence(foldId);
       spdMessage = foldReceipt.deduplicated === true ? m.spdPublishedDedup({ v1: foldId }) : m.spdPublishedNew({ v1: foldId });
       pushLog(`[SPD] ${spdMessage}`);
       void notify('success', m.spdPublishTitle(), spdMessage);
@@ -1902,6 +1959,20 @@ Variant_M5,I32L + L45M + L50M`);
               <span style="flex:1; min-width:0;">{m.spdFoldIdLabel()} {spdFoldId}</span>
               <button class="pix-btn-reset" type="button" onclick={openFoldInspector} style="flex:0 0 auto; padding:1px 5px; font-size:9px; border:1px solid var(--pix-border);">{m.spdInspectorDetails()}</button>
             </div>
+            {#if spdEvidence}
+              <div class="pix-dim" style="margin-top:2px; font-size:9px;" data-testid="spd-fold-evidence">
+                {#if spdEvidenceCount(spdEvidence)}
+                  {m.spdFoldEvidenceLine({
+                    v1: String(spdEvidence.validations?.length ?? 0),
+                    v2: String(spdEvidence.observedStructures?.length ?? 0),
+                    v3: String(spdEvidence.mdVerifications?.length ?? 0),
+                    v4: String(spdEvidence.stabilityScans?.length ?? 0),
+                    v5: String(spdEvidence.pocketAnalyses?.length ?? 0),
+                    v6: String(spdEvidence.assessments?.length ?? 0),
+                  })}
+                {:else}{m.spdInspectorNoEvidence()}{/if}
+              </div>
+            {/if}
           {/if}
           {#if spdMessage}<div class="pix-dim" style="margin-top:4px; font-size:10px; word-break:break-word;">{spdMessage}</div>{/if}
         </div>

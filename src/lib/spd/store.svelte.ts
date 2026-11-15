@@ -20,6 +20,15 @@ export function cachedProteinId(seqKey: string): string { return local()?.getIte
 export function cachedSequenceId(seqKey: string): string { return local()?.getItem(`${NS}_sequence_${seqKey}`) || ''; }
 export function rememberProteinId(seqKey: string, id: string) { local()?.setItem(`${NS}_protein_${seqKey}`, id); }
 export function rememberSequenceId(seqKey: string, id: string) { local()?.setItem(`${NS}_sequence_${seqKey}`, id); }
+/** Last sequence published under one protein. Used as the parent of the next
+ *  sequence so SPD can grow a mutation lineage instead of a flat list of
+ *  unrelated roots. Keyed by protein id, which survives a sequence edit. */
+export function lastSequenceForProtein(proteinId: string): string {
+  return local()?.getItem(`${NS}_protein_sequence_${proteinId}`) || '';
+}
+export function rememberSequenceForProtein(proteinId: string, id: string) {
+  local()?.setItem(`${NS}_protein_sequence_${proteinId}`, id);
+}
 /** Every locally known sequence id (for graph-DSL batch queries: one POST
  *  /query with roots walks them all in a shared resolution budget). */
 export function cachedSequenceEntries(): Array<{ seqKey: string; id: string }> {

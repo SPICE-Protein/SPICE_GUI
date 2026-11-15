@@ -275,6 +275,8 @@ When the page is opened from a project document, a banner shows `{project} › {
 
 The left-panel **SPD** section can batch-query existing folds and publish a fold summary. Publishing requires a fold result, a desktop build, and a token configured in **Settings → Public Integrations**. Only summary records, environment, model identity, and derived metrics are uploaded; coordinates and matrices stay local. See the [Project Hub guide](project-hub.md) and [Settings guide](settings.md) for the shared workflow.
 
+Re-publishing under the same protein records a mutation lineage: the new sequence is sent with the previous sequence as its parent plus the residue substitutions between them, so SPD's sequence tree grows a branch instead of adding another unrelated root. A length change (insertion or deletion) is still published, but without a parent claim because SPD records substitutions. The fold inspector shows what SPD holds against the record — relations, lineage, wet-lab validations, observed structures, MD verifications, stability scans, pocket analyses, and assessments — with empty sections when nothing is filed yet.
+
 ## 11. Worked example: lysozyme sanity check
 
 1. Select **Lysozyme 2LYZ (129 aa)** or fetch `2LYZ` with **RCSB**.

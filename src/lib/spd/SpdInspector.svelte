@@ -7,7 +7,11 @@
   import * as m from '$lib/paraglide/messages.js';
   import { isTauri } from '$lib/backend/api';
   import { configureSpdClient, spdBaseUrl } from './client';
-  import type { SpdGeneRecord, SpdGeneRegion } from './types';
+  import type {
+    SpdFoldHistory, SpdGeneRecord, SpdGeneRegion, SpdLineageNode,
+    SpdProvenanceSnapshot, SpdRelation, SpdSequenceTree,
+  } from './types';
+  import { entityTypeForKind, inspectorKindForEntityType, lineageChain, relationLabel } from './relations';
   import { spdInspector, type SpdInspectorKind, type SpdInspectorTarget } from './inspector.svelte';
 
   interface Related {
@@ -23,6 +27,11 @@
   let related = $state.raw<Related | null>(null);
   let geneRegions = $state.raw<SpdGeneRegion[] | null>(null);
   let sequenceLength = $state<number | null>(null);
+  let relations = $state.raw<SpdRelation[]>([]);
+  let lineage = $state.raw<SpdLineageNode[]>([]);
+  let evidence = $state.raw<SpdFoldHistory | null>(null);
+  let tree = $state.raw<SpdSequenceTree | null>(null);
+  let provenance = $state.raw<SpdProvenanceSnapshot[]>([]);
   let loadToken = 0;
 
   let x = $state<number | null>(null);
@@ -78,6 +87,15 @@
     }),
   );
   const overview = $derived(buildOverview(record, target?.kind));
+  const evidenceRows = $derived(evidence ? [
+    { key: 'validations', count: evidence.validations?.length ?? 0 },
+    { key: 'observedStructures', count: evidence.observedStructures?.length ?? 0 },
+    { key: 'mdVerifications', count: evidence.mdVerifications?.length ?? 0 },
+    { key: 'stabilityScans', count: evidence.stabilityScans?.length ?? 0 },
+    { key: 'pocketAnalyses', count: evidence.pocketAnalyses?.length ?? 0 },
+    { key: 'assessments', count: evidence.assessments?.length ?? 0 },
+  ] : []);
+  const evidenceTotal = $derived(evidenceRows.reduce((sum, row) => sum + row.count, 0));
   const dnaSequenceLength = $derived(sequenceTextLength(record?.dnaSequence));
   const rnaSequenceLength = $derived(sequenceTextLength(record?.rnaSequence));
 
@@ -89,6 +107,7 @@
       case 'enzyme': return m.spdInspectorKindEnzyme();
       case 'artifact': return m.spdInspectorKindArtifact();
       case 'gene': return m.spdInspectorKindGene();
+      case 'sequence': return m.spdInspectorKindSequence();
     }
   }
 
@@ -110,6 +129,13 @@
 
   function sequenceTextLength(value: unknown): number | null {
     return typeof value === 'string' ? value.length : null;
+  }
+
+  /** SPD stores the declared mutation array as free-form JSON. Count entries
+   *  when it is an array; anything else is reported as zero rather than
+   *  stringified into the row. */
+  function mutationCount(value: unknown): number {
+    return Array.isArray(value) ? value.length : 0;
   }
 
   function pretty(value: unknown): string {
@@ -158,6 +184,10 @@
         'moleculeType', 'topology', 'chromosome', 'mapLocation', 'strand', 'dnaLength',
         'rnaLength', 'sequenceVersion', 'sourceUpdatedAt', 'createdAt',
       ],
+      sequence: [
+        'length', 'sha256', 'sequenceRole', 'proteinId', 'parentSequenceId',
+        'isNative', 'createdAt',
+      ],
     };
     return keys[kind]
       .filter((key) => row[key] !== undefined && row[key] !== null)
@@ -172,8 +202,36 @@
     related = null;
     geneRegions = null;
     sequenceLength = null;
+    relations = [];
+    lineage = [];
+    evidence = null;
+    tree = null;
+    provenance = [];
+    const client = configureSpdClient();
+    const entityType = entityTypeForKind(target.kind);
+    // Graph reads run beside the record read. They are supplementary: a
+    // permission or network failure on the edge list must not hide a record
+    // that loaded fine, so both degrade to an empty section.
+    const relationPromise = client
+      .entityRelations(entityType, target.id)
+      .then((result) => result.relations)
+      .catch(() => [] as SpdRelation[]);
+    const lineagePromise = target.kind === 'sequence'
+      ? client
+          .entityLineage('sequence', target.id)
+          .then((result) => lineageChain(result.nodes))
+          .catch(() => [] as SpdLineageNode[])
+      : Promise.resolve([] as SpdLineageNode[]);
+    const evidencePromise = target.kind === 'fold'
+      ? client.foldHistory(target.id).catch(() => null)
+      : Promise.resolve(null);
+    const treePromise = target.kind === 'sequence'
+      ? client.sequenceTree(target.id).catch(() => null)
+      : Promise.resolve(null);
+    const provenancePromise = client
+      .provenanceSnapshots(entityType, target.id)
+      .catch(() => [] as SpdProvenanceSnapshot[]);
     try {
-      const client = configureSpdClient();
       if (target.kind === 'vector') {
         const vector = await client.getVector(target.id);
         if (token !== loadToken) return;
@@ -199,13 +257,21 @@
         const sequenceId = typeof fold.sequenceId === 'string' ? fold.sequenceId : '';
         const environmentId = typeof fold.environmentId === 'string' ? fold.environmentId : '';
         const modelId = typeof fold.modelId === 'string' ? fold.modelId : '';
-        const [sequence, environment, model] = await Promise.all([
-          sequenceId ? client.getSequence(sequenceId).catch(() => null) : Promise.resolve(null),
-          environmentId ? client.getEnvironment(environmentId).catch(() => null) : Promise.resolve(null),
-          modelId ? client.getModel(modelId).catch(() => null) : Promise.resolve(null),
-        ]);
-        if (token !== loadToken) return;
-        related = { sequence, environment, model };
+        // One graph read replaces the three follow-ups when the DSL resolves
+        // the fold root; otherwise fall back to the individual endpoints so an
+        // older server still fills the Related cards.
+        const context = await client.graphFoldContext(target.id);
+        if (context) {
+          related = context;
+        } else {
+          const [sequence, environment, model] = await Promise.all([
+            sequenceId ? client.getSequence(sequenceId).catch(() => null) : Promise.resolve(null),
+            environmentId ? client.getEnvironment(environmentId).catch(() => null) : Promise.resolve(null),
+            modelId ? client.getModel(modelId).catch(() => null) : Promise.resolve(null),
+          ]);
+          if (token !== loadToken) return;
+          related = { sequence, environment, model };
+        }
       } else if (target.kind === 'protein') {
         record = await client.getProtein(target.id);
       } else if (target.kind === 'enzyme') {
@@ -220,9 +286,17 @@
         const geneRecord = gene as SpdGeneRecord;
         record = geneRecord as unknown as Record<string, unknown>;
         geneRegions = (regions as SpdGeneRegion[] | null) ?? [];
+      } else if (target.kind === 'sequence') {
+        record = (await client.getSequence(target.id)) as unknown as Record<string, unknown>;
       } else {
         record = (await client.getArtifact(target.id)) as unknown as Record<string, unknown>;
       }
+      if (token !== loadToken) return;
+      relations = await relationPromise;
+      lineage = await lineagePromise;
+      evidence = await evidencePromise;
+      tree = await treePromise;
+      provenance = await provenancePromise;
     } catch (err) {
       if (token === loadToken) error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -237,6 +311,11 @@
       record = null;
       related = null;
       geneRegions = null;
+      relations = [];
+      lineage = [];
+      evidence = null;
+      tree = null;
+      provenance = [];
       error = '';
       loading = false;
     }
@@ -265,6 +344,7 @@
       enzyme: 'enzymes',
       artifact: 'artifacts',
       gene: 'genes',
+      sequence: 'sequences',
     };
     const root = spdBaseUrl()
       .replace(/\/api\/v1\/?$/, '')
@@ -362,6 +442,67 @@
           {/if}
         </div>
 
+        <h4>{m.spdInspectorLinks()} <span class="count">{relations.length}</span></h4>
+        {#if relations.length}
+          <div class="relation-list">
+            {#each relations as relation (relation.id)}
+              {@const otherKind = inspectorKindForEntityType(relation.other.type)}
+              <div class="relation-row">
+                <span class="relation-dir" title={relation.direction}>{relation.direction === 'out' ? '→' : '←'}</span>
+                <span class="relation-type">{relation.relationType}</span>
+                {#if otherKind}
+                  <button
+                    class="link-btn relation-target"
+                    type="button"
+                    title={relation.other.id}
+                    onclick={() => spdInspector.open(otherKind, relation.other.id, relation.other.label ?? undefined)}
+                  >{relationLabel(relation)}</button>
+                {:else}
+                  <code class="relation-target" title={relation.other.id}>{relationLabel(relation)}</code>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <div class="empty">{m.spdInspectorNoLinks()}</div>
+        {/if}
+
+        {#if target.kind === 'sequence' && lineage.length}
+          <h4>{m.spdInspectorLineage()} <span class="count">{lineage.length}</span></h4>
+          <div class="lineage-chain">
+            {#each lineage as node, index (node.id)}
+              {#if index > 0}<span class="lineage-sep">›</span>{/if}
+              <button
+                class="link-btn lineage-node"
+                class:current={node.id === target.id}
+                type="button"
+                title={node.id}
+                onclick={() => spdInspector.open('sequence', node.id, node.sequenceRole ?? undefined)}
+              >{node.sequenceRole || node.id.slice(-8)}</button>
+            {/each}
+          </div>
+        {/if}
+
+        {#if target.kind === 'sequence' && tree && tree.nodeCount > 1}
+          <h4>{m.spdInspectorVariants()} <span class="count">{tree.nodeCount - 1}</span></h4>
+          <div class="variant-list">
+            {#each tree.nodes.filter((node) => node.id !== target.id).slice(0, 12) as node (node.id)}
+              <button
+                class="link-btn variant-row"
+                type="button"
+                title={node.id}
+                onclick={() => spdInspector.open('sequence', node.id, node.sequenceRole ?? undefined)}
+              >
+                <span class="variant-depth">d{node.depth ?? 0}</span>
+                <span>{node.id.slice(-8)}</span>
+                <span class="variant-mutations">
+                  {node.sequenceRole ?? ''}{mutationCount(node.mutations) ? ` · ${m.spdInspectorMutations({ v1: String(mutationCount(node.mutations)) })}` : ''}
+                </span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
         {#if target.kind === 'gene'}
           <h4>{m.spdInspectorGeneRegions()} <span class="count">{geneRegionRows.length}</span></h4>
           {#if geneRegionRows.length}
@@ -443,6 +584,17 @@
         {/if}
 
         {#if target.kind === 'fold'}
+          <h4>{m.spdInspectorEvidence()} <span class="count">{evidenceTotal}</span></h4>
+          {#if evidenceTotal}
+            <div class="evidence-grid">
+              {#each evidenceRows as row (row.key)}
+                <div class="kv"><span>{row.key}</span><code>{row.count}</code></div>
+              {/each}
+            </div>
+          {:else}
+            <div class="empty">{m.spdInspectorNoEvidence()}</div>
+          {/if}
+
           <h4>{m.spdInspectorRelated()}</h4>
           <div class="related-grid">
             {#if related?.sequence}
@@ -496,6 +648,18 @@
         {#if target.kind === 'enzyme' && record.metadata !== undefined}
           <h4>{m.spdInspectorRaw()}</h4>
           <pre>{pretty(record.metadata)}</pre>
+        {/if}
+
+        {#if provenance.length}
+          <h4>{m.spdInspectorSources()} <span class="count">{provenance.length}</span></h4>
+          <div class="source-list">
+            {#each provenance as snapshot, index (snapshot.id ?? index)}
+              <div class="kv">
+                <span>{snapshot.source ?? 'source'}</span>
+                <code>{[snapshot.sourceId, snapshot.license, timeText('sourceFetchedAt', snapshot.fetchedAt)].filter(Boolean).join(' · ')}</code>
+              </div>
+            {/each}
+          </div>
         {/if}
 
         <details class="raw">
@@ -565,6 +729,23 @@
   .related-card strong { color: var(--pix-green); text-transform: uppercase; font-size: 8px; }
   .link-btn { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none; color: var(--pix-cyan); font: inherit; text-align: left; word-break: break-all; cursor: pointer; }
   .link-btn:hover { text-decoration: underline; }
+  .relation-list { display: flex; flex-direction: column; gap: 2px; }
+  .relation-row { display: grid; grid-template-columns: 12px minmax(84px, 0.5fr) 1fr; gap: 5px; align-items: baseline; }
+  .relation-dir { color: var(--pix-fg-dim); text-align: center; }
+  .relation-type { color: var(--pix-fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .relation-target { min-width: 0; word-break: break-all; color: var(--pix-fg); }
+  button.relation-target { color: var(--pix-cyan); }
+  .lineage-chain { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px; }
+  .lineage-sep { color: var(--pix-fg-dim); }
+  .lineage-node { border: 1px solid var(--pix-border); padding: 1px 4px; font-size: 8.5px; color: var(--pix-fg-dim); }
+  .lineage-node:hover { border-color: var(--pix-cyan); text-decoration: none; }
+  .lineage-node.current { color: var(--pix-cyan); border-color: var(--pix-cyan); }
+  .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+  .variant-list { display: flex; flex-direction: column; gap: 1px; }
+  .variant-row { display: grid; grid-template-columns: 22px 74px 1fr; gap: 5px; align-items: baseline; text-align: left; }
+  .variant-depth { color: var(--pix-fg-dim); }
+  .variant-mutations { color: var(--pix-fg-dim); font-size: 8.5px; }
+  .source-list { display: flex; flex-direction: column; gap: 2px; }
   .json-sections { display: flex; flex-direction: column; gap: 2px; }
   details { border: 1px solid var(--pix-border); padding: 3px 4px; }
   summary { cursor: pointer; color: var(--pix-fg-dim); }

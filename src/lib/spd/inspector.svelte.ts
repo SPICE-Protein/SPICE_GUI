@@ -1,7 +1,7 @@
 // Global SPD record inspector. Any page can open the floating panel with a
 // public SPD id; the panel itself fetches the current record on demand.
 
-export type SpdInspectorKind = 'vector' | 'protein' | 'fold' | 'enzyme' | 'artifact' | 'gene';
+export type SpdInspectorKind = 'vector' | 'protein' | 'fold' | 'enzyme' | 'artifact' | 'gene' | 'sequence';
 
 export interface SpdInspectorTarget {
   kind: SpdInspectorKind;

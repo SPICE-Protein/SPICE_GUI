@@ -152,6 +152,75 @@ export interface SpdGraphData {
   imported?: unknown[]; importsUsed?: number; importBudgetMax?: number;
 }
 
+/** ───── Graph reads (relations, lineage) ─────
+ *  GET /entities/{type}/{id}/relations folds every derived edge (encodes,
+ *  sequence_of, fold_of, structure_of, pathway_step, catalyzes, …) and every
+ *  asserted one into a single list. `other` is the far side already resolved
+ *  to a display label, so a chip can name the record without a second read. */
+export interface SpdEntityRef { id: string; type: string }
+export interface SpdRelation {
+  id: string;
+  relationType: string;
+  /** Direction relative to the addressed entity: it is the from- or to-side. */
+  direction: 'in' | 'out' | string;
+  source?: string;
+  role?: string | null;
+  note?: string | null;
+  from: SpdEntityRef;
+  to: SpdEntityRef;
+  other: SpdEntityRef & { label?: string | null; subtitle?: string | null };
+}
+export interface SpdRelationsResult { entity: SpdEntityRef; relations: SpdRelation[] }
+/** GET /entities/{type}/{id}/lineage and /sequences/{id}/lineage: the
+ *  ancestor chain, root first. Sequence records additionally return the
+ *  aligned sequence text on each node. */
+export interface SpdLineageNode {
+  id: string; parentSequenceId?: string | null; sequenceRole?: string;
+  sha256?: string; isNative?: boolean; sequence?: string;
+}
+export interface SpdLineageEdge { from: string; to: string }
+export interface SpdLineageResult {
+  rootSequenceId?: string; nodes: SpdLineageNode[]; edges: SpdLineageEdge[];
+}
+
+/** GET /sequences/{id}/tree — descendant variants with their declared
+ *  mutations. `mutations` is stored as free-form JSON, so it stays unknown. */
+export interface SpdMutationTreeNode {
+  id: string; depth?: number; parentSequenceId?: string | null;
+  sequenceRole?: string; mutations?: unknown; sha256?: string;
+  sequence?: string; isNative?: boolean;
+}
+export interface SpdSequenceTree {
+  rootSequenceId?: string; nodeCount: number; maxDepth: number;
+  nodes: SpdMutationTreeNode[]; edges: SpdLineageEdge[];
+}
+
+/** One declared residue substitution on a sequence record. SPD stores the
+ *  array verbatim and joins it to the mutation map by position. */
+export interface SpdSequenceMutation { position: number; from: string; to: string }
+
+/** GET /folds/{id}/history — wet-lab validations, observed structures, MD
+ *  verifications, stability scans, pocket analyses and assessments in one
+ *  read. Each row keeps its own shape, so the record stays loose. */
+export interface SpdEvidenceRecord { id?: string; status?: string; createdAt?: number; [key: string]: unknown }
+export interface SpdFoldHistory {
+  foldId?: string;
+  validations?: SpdEvidenceRecord[];
+  observedStructures?: SpdEvidenceRecord[];
+  mdVerifications?: SpdEvidenceRecord[];
+  stabilityScans?: SpdEvidenceRecord[];
+  pocketAnalyses?: SpdEvidenceRecord[];
+  assessments?: SpdEvidenceRecord[];
+  prediction?: unknown;
+}
+
+/** GET /provenance/snapshots/by-entity/{type}/{id} — raw upstream payloads
+ *  filed against a record (source, fetchedAt, license). */
+export interface SpdProvenanceSnapshot {
+  id?: string; source?: string; sourceId?: string; fetchedAt?: number | string;
+  mediaType?: string; license?: string; [key: string]: unknown;
+}
+
 /** ───── Vector templates (design objects, POST /vectors) ─────
  *  The vector body is a structured record: the server rejects unknown
  *  top-level keys, so every field below must match the §13 model verbatim. */
