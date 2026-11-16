@@ -1,6 +1,6 @@
 [package]
 name = "spice_gui"
-version = "0.4.0"
+version = "0.5.0"
 description = "SPICE — Sequence-Protein Interaction under Conditional Environments (Tauri GUI)"
 authors = ["RedElectricity"]
 edition = "2021"

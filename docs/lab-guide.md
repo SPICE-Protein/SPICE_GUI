@@ -1,6 +1,6 @@
 # SPICE GUI: Laboratory Guide Overview
 
-**Applies to:** SPICE GUI v0.4.0 (Windows, macOS, Linux; Android build available)
+**Applies to:** SPICE GUI v0.5.0 (Windows, macOS, Linux; Android build available)
 
 **Audience:** bench scientists, lab managers, and students who need to design constructs, record experiments, analyse gels and blots, and assemble figures without sending data to a server.
 
