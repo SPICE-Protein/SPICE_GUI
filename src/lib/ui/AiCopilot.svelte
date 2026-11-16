@@ -19,6 +19,7 @@
     type McpToolDescriptor,
   } from '$lib/ai/mcp';
   import { projectStore } from '$lib/project/store.svelte';
+  import { riskCatalogStore } from '$lib/biosec/store.svelte';
   import * as m from '$lib/paraglide/messages.js';
   import {
     Send, Sparkles, Settings, RotateCcw, X, Check, Dna,
@@ -237,6 +238,7 @@
   }
 
   onMount(() => {
+    void riskCatalogStore.ensureLoaded();
     // Expose global bridge functions for HTML-injected buttons in Markdown
     (window as any).applyCopilotMutations = (b64: string) => {
       try {
@@ -586,12 +588,25 @@
         plasmidName: aiState.geneContext.plasmidName,
         gcContent: aiState.geneContext.gcContent,
         codonHost: aiState.geneContext.codonHost,
+        topology: aiState.geneContext.topology,
+        version: aiState.geneContext.version,
+        features: aiState.geneContext.features,
       },
       documents: buildSearchDocuments(),
       memory: [...aiState.memory],
       mcpServers: $state.snapshot(mcpServers),
+      riskCatalogs: riskCatalogStore.catalogs,
+      biorisk: riskCatalogStore.commec
+        ? {
+            installed: riskCatalogStore.commec.installed,
+            version: riskCatalogStore.commec.version,
+            models: riskCatalogStore.commec.models,
+          }
+        : { installed: false, version: '', models: 0 },
+      screenBiorisk: (sequence, circular) => riskCatalogStore.screenBiorisk(sequence, circular),
       actions: {
         applyDnaSequence: aiState.onApplyDnaSequence ?? undefined,
+        applyGenePlan: aiState.onApplyGenePlan ?? undefined,
         applyProteinSequence: aiState.onApplyProteinSequence ?? undefined,
         importMutations: aiState.onImportMutations ?? undefined,
         rememberFact: (text, tags) => aiState.rememberFact(text, tags),

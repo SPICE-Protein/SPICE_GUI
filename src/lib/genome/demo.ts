@@ -4,6 +4,7 @@
 // type + feature color) into the SPICE page's data model (1-based inclusive).
 
 import oveDemo from "./data/exampleSequenceData";
+import { colorForFeatureType } from "./featureColors";
 
 export interface SpiceFeature {
   id: number;
@@ -24,27 +25,8 @@ export interface DemoPlasmid {
   circular: boolean;
 }
 
-// GenBank-style feature type -> color (matching the ported featureTypesAndColors)
-function colorForType(type: string): string {
-  const t = (type || "misc_feature").toLowerCase();
-  const map: Record<string, string> = {
-    cds: "#ef6500",
-    gene: "#684e27",
-    promoter: "#31b440",
-    terminator: "#f51600",
-    rep_origin: "#878787",
-    origin: "#878787",
-    misc_marker: "#8dceb1",
-    protein_bind: "#2e2e2e",
-    misc_binding: "#006fef",
-    rbs: "#bdffcb",
-    misc_feature: "#006fef",
-    primer_bind: "#53d969",
-    tag: "#e419da",
-    signal_peptide: "#2fff8d"
-  };
-  return map[t] || "#4cd6ff";
-}
+// GenBank-style feature type -> color (shared with the intent layer)
+const colorForType = colorForFeatureType;
 
 export function loadOveDemoPlasmid(): DemoPlasmid {
   const seq: string = oveDemo.sequence || "";

@@ -43,6 +43,13 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   import NgsGenomicsPanel from '$lib/gene/panels/NgsGenomicsPanel.svelte';
   import AdvancedGenomicsPanel from '$lib/gene/panels/AdvancedGenomicsPanel.svelte';
   import SyntheticBiologyCadPanel from '$lib/gene/panels/SyntheticBiologyCadPanel.svelte';
+  import DiagnosticsPanel from '$lib/gene/DiagnosticsPanel.svelte';
+  import { diagnoseGeneWorkspace } from '$lib/gene/diagnostics';
+  import { rangeLength } from '$lib/gene/featureRange';
+  import { newRiskFindings, screenSequence } from '$lib/biosec/screen';
+  import { assessPlanRisk } from '$lib/biosec/gate';
+  import { riskCatalogStore } from '$lib/biosec/store.svelte';
+  import type { DiagnosticFinding } from '$lib/diagnostics/types';
   import SequenceEvolutionPanel from '$lib/gene/panels/SequenceEvolutionPanel.svelte';
   import CloningExtensionPanel from '$lib/gene/panels/CloningExtensionPanel.svelte';
   import CollectionsBatchPanel from '$lib/gene/panels/CollectionsBatchPanel.svelte';
@@ -146,7 +153,6 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
    predictSolubilityAndAggregation,
    predictMutationalStabilityDdG,
    estimateCopyNumberAndIncompatibility,
-   auditBiosecurityScreening,
    parseGFF3,
    parseGTF,
    parseBED,
@@ -186,6 +192,14 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
  import { parseAb1, parseScf } from '$lib/genome/sangerTrace';
   import { simulateCloning, type CloningMethod } from '$lib/genome/cloningMethods';
   import { loadOveDemoPlasmid } from '$lib/genome/demo';
+  import { colorForFeatureType } from '$lib/genome/featureColors';
+  import {
+    applyGenePlan,
+    describeGenePlan,
+    workspaceVersion,
+    type GenePlanApplication,
+    type GeneWorkspaceSnapshot,
+  } from '$lib/gene/workspaceIntents';
 
   // Ported OVE demo plasmid (pJ5_00001, 5299 bp) — full data model
   const oveDemo = loadOveDemoPlasmid();
@@ -309,6 +323,17 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     aiState.geneContext.plasmidName = plasmidName;
     aiState.geneContext.codonHost = codonHost;
     aiState.geneContext.gcContent = calculatePercentGC(dnaSeq);
+    const snapshot = currentGeneSnapshot();
+    aiState.geneContext.version = workspaceVersion(snapshot);
+    aiState.geneContext.topology = snapshot.topology;
+    aiState.geneContext.features = snapshot.features.map((feature) => ({
+      id: feature.id,
+      name: feature.name,
+      start: feature.start,
+      end: feature.end,
+      type: feature.type,
+      forward: feature.forward,
+    }));
   });
 
   // Save selected enzymes to localStorage whenever they change
@@ -319,17 +344,20 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   });
 
   onMount(() => {
+    void riskCatalogStore.ensureLoaded();
     aiState.onApplyDnaSequence = (newSeq: string) => {
       // AI-applied sequences are untrusted edits: snapshot the current state
       // first so the change is undoable from the history panel.
       pushHistory('AI: replace sequence', 'edit');
       dnaSeq = newSeq;
     };
+    aiState.onApplyGenePlan = applyAgentGenePlan;
     aiState.onUndoAiChange = () => undo();
-    
+
 
     return () => {
       aiState.onApplyDnaSequence = null;
+      aiState.onApplyGenePlan = null;
       aiState.onUndoAiChange = null;
     };
   });
@@ -416,6 +444,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
  let featureSearchText = $state('');
  // Settings panel
  let showSettingsPanel = $state(false);
+  let showDiagnosticsPanel = $state(false);
  // Sanger file import
  let sangerFileInput = $state<HTMLInputElement | null>(null);
  // Multiple alignment
@@ -1656,22 +1685,31 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   }
 
   // SnapGene parity: Undo/Redo via HistoryManager
-  function pushHistory(label: string, operationType: any = 'edit') {
+  function pushHistory(label: string, operationType: any = 'edit', meta?: Record<string, unknown>) {
     histMgr.push({
       label,
       operationType,
       sequence: dnaSeq,
       features: [...geneFeatures],
+      ...(meta ? { meta } : {}),
     });
     canUndo = histMgr.canUndo();
     canRedo = histMgr.canRedo();
   }
 
+  function restoreHistorySnapshot(snap: { sequence: string; features?: any[]; meta?: Record<string, unknown> }) {
+    dnaSeq = snap.sequence;
+    if (snap.features) geneFeatures = [...snap.features];
+    // Only agent plans record construct metadata, so ordinary edits keep the
+    // name and topology they already had.
+    if (typeof snap.meta?.plasmidName === 'string') plasmidName = snap.meta.plasmidName;
+    if (snap.meta?.topology === 'circular' || snap.meta?.topology === 'linear') activeTab = snap.meta.topology;
+  }
+
   function undo() {
     const snap = histMgr.undo();
     if (snap) {
-      dnaSeq = snap.sequence;
-      if (snap.features) geneFeatures = [...snap.features];
+      restoreHistorySnapshot(snap);
       canUndo = histMgr.canUndo();
       canRedo = histMgr.canRedo();
       pushLog(`[UNDO] ${snap.label}`);
@@ -1681,12 +1719,124 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   function redo() {
     const snap = histMgr.redo();
     if (snap) {
-      dnaSeq = snap.sequence;
-      if (snap.features) geneFeatures = [...snap.features];
+      restoreHistorySnapshot(snap);
       canUndo = histMgr.canUndo();
       canRedo = histMgr.canRedo();
       pushLog(`[REDO] ${snap.label}`);
     }
+  }
+
+  // ---------------- Agent intent adapter ----------------
+  // The agent never writes page state directly. It proposes typed intents plus
+  // the workspace version it inspected; this adapter rejects stale or invalid
+  // plans and commits a valid one as a single history entry.
+
+  function currentGeneSnapshot(): GeneWorkspaceSnapshot {
+    return {
+      name: plasmidName,
+      sequence: dnaSeq,
+      topology: linear ? 'linear' : 'circular',
+      features: geneFeatures.map((feature) => ({
+        id: feature.id,
+        name: feature.name,
+        start: feature.start,
+        end: feature.end,
+        type: feature.type,
+        color: feature.color,
+        forward: feature.forward,
+      })),
+    };
+  }
+
+  async function applyAgentGenePlan(
+    rawIntents: unknown,
+    expectedVersion?: string,
+    actor: 'agent' | 'user' = 'agent',
+  ): Promise<GenePlanApplication> {
+    const snapshot = currentGeneSnapshot();
+    const version = workspaceVersion(snapshot);
+    if (expectedVersion && expectedVersion !== version) {
+      return {
+        ok: false,
+        code: 'stale_workspace',
+        message: `the workspace changed since it was inspected (was ${expectedVersion}, now ${version}); inspect it again before editing`,
+        version,
+      };
+    }
+    const result = applyGenePlan(snapshot, rawIntents);
+    if (!result.ok) {
+      return {
+        ok: false,
+        code: result.code,
+        message: result.intentIndex === null ? result.message : `intent ${result.intentIndex + 1}: ${result.message}`,
+        version,
+      };
+    }
+    if (result.changes.length > 0) {
+      // Agent plans are screened against the result, not the request. A record
+      // that already matched before the plan is not new and does not block.
+      if (actor === 'agent') {
+        const assessment =
+          riskCatalogStore.catalogs.length > 0
+            ? assessPlanRisk(snapshot, result.snapshot, riskCatalogStore.catalogs)
+            : { blocking: [] as DiagnosticFinding[] };
+        let bioriskBlocking: DiagnosticFinding[] = [];
+        if (riskCatalogStore.hasBiorisk) {
+          const circular = snapshot.topology === 'circular';
+          const [before, after] = await Promise.all([
+            riskCatalogStore.screenBiorisk(snapshot.sequence, circular),
+            riskCatalogStore.screenBiorisk(result.snapshot.sequence, circular),
+          ]);
+          bioriskBlocking = newRiskFindings(before, after).filter(
+            (finding) => finding.severity === 'blocking',
+          );
+        }
+        const blocking = [...assessment.blocking, ...bioriskBlocking];
+        if (blocking.length > 0) {
+          // Only category and count cross the model boundary; catalog names and
+          // signatures stay in the local diagnostics panel.
+          const categories = [
+            ...new Set(blocking.map((finding) => String(finding.params?.category ?? 'unknown'))),
+          ];
+          return {
+            ok: false,
+            code: 'risk_review_required',
+            message: `the plan introduces ${blocking.length} controlled sequence match(es) (${categories.join(', ')}); a person must review it in the diagnostics panel`,
+            version,
+          };
+        }
+      }
+      pushHistory(describeGenePlan(result), 'edit', {
+        plasmidName,
+        topology: linear ? 'linear' : 'circular',
+      });
+      dnaSeq = result.snapshot.sequence;
+      geneFeatures = result.snapshot.features.map((feature) => ({
+        ...feature,
+        color: feature.color ?? colorForFeatureType(feature.type),
+      }));
+      plasmidName = result.snapshot.name;
+      if (result.snapshot.topology === 'linear') activeTab = 'linear';
+      else if (activeTab === 'linear') activeTab = 'circular';
+      // Post-verify gate: re-read the committed document, not the plan, so a
+      // mismatch between intent and state is reported instead of assumed away.
+      const observed = workspaceVersion(currentGeneSnapshot());
+      if (observed !== result.version) {
+        return {
+          ok: false,
+          code: 'post_verify_failed',
+          message: `the document did not reach the planned state (expected ${result.version}, observed ${observed})`,
+          version: observed,
+          snapshot: result.snapshot,
+        };
+      }
+    }
+    return {
+      ok: true,
+      message: result.changes.length > 0 ? result.changes.join('\n') : 'no changes were necessary',
+      version: result.version,
+      snapshot: result.snapshot,
+    };
   }
 
   // SnapGene parity: Ensembl import
@@ -1996,6 +2146,67 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
     pushLog(`[Script] ${scriptName}: applied ${patch.sequence?.length ?? dnaSeq.length} bp`);
   }
 
+  // ---------------- Diagnostics ----------------
+  // Derived from the same snapshot the agent edits, so a finding is never
+  // computed against a document the user is no longer looking at. The biorisk
+  // scan is asynchronous and expensive, so it runs only while the panel is
+  // open, after the sequence stops changing.
+  let bioriskFindings = $state<DiagnosticFinding[]>([]);
+  let bioriskToken = 0;
+
+  $effect(() => {
+    const sequence = dnaSeq;
+    const circular = !linear;
+    const open = showDiagnosticsPanel;
+    const installed = riskCatalogStore.commec?.installed === true;
+    if (!open || !installed) {
+      bioriskFindings = [];
+      return;
+    }
+    const token = ++bioriskToken;
+    const timer = setTimeout(() => {
+      void riskCatalogStore.screenBiorisk(sequence, circular).then((findings) => {
+        if (token === bioriskToken) bioriskFindings = findings;
+      });
+    }, 700);
+    return () => clearTimeout(timer);
+  });
+
+  const diagnosticFindings = $derived.by((): DiagnosticFinding[] => {
+    if (!showDiagnosticsPanel) return [];
+    const snapshot = currentGeneSnapshot();
+    const enzymeSites = selectedEnzymes
+      .map((name) => ({ name, motif: enzymeDatabase[name]?.seq ?? '' }))
+      .filter((site) => site.motif.length > 0);
+    const documentFindings = diagnoseGeneWorkspace(snapshot, { enzymeSites });
+    const riskFindings = screenSequence(snapshot.sequence, riskCatalogStore.catalogs, {
+      circular: snapshot.topology === 'circular',
+    });
+    const order = { blocking: 0, warning: 1, info: 2 } as const;
+    return [...documentFindings, ...riskFindings, ...bioriskFindings].sort(
+      (a, b) => order[a.severity] - order[b.severity] || (a.scope.start ?? 0) - (b.scope.start ?? 0),
+    );
+  });
+
+  function locateDiagnostic(finding: DiagnosticFinding) {
+    if (finding.scope.id !== undefined) activeFeatureId = finding.scope.id;
+    selectionStart = finding.scope.start ?? 1;
+    selectionEnd = finding.scope.end ?? selectionStart;
+    if (finding.scope.kind === 'feature') activeTab = 'features';
+    else activeTab = 'sequence';
+  }
+
+  async function applyDiagnosticFix(finding: DiagnosticFinding, fixIndex: number) {
+    const fix = finding.fixes?.[fixIndex];
+    if (!fix) return;
+    const result = await applyAgentGenePlan(fix.intents, undefined, 'user');
+    if (result.ok) {
+      pushToast('success', m.diagFixApplied(), result.message);
+    } else {
+      pushToast('error', m.diagFixFailed(), result.message);
+    }
+  }
+
   // Build an enzyme definition for the cutsite engine: prefer the tg-oss DB,
   // fall back to a generated definition from the synced REBASE data.
   function resolveEnzymeFor(name: string) {
@@ -2178,6 +2389,20 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       pushToast('error', m.exportSpicegFailed(), r.error);
     }
     } else {
+      // Sequence formats are a synthesis/share boundary: do not hand them out
+      // while a controlled-sequence match is unresolved.
+      const exact = screenSequence(dnaSeq, riskCatalogStore.catalogs, {
+        circular: !linear,
+      });
+      const biorisk = await riskCatalogStore.screenBiorisk(dnaSeq, !linear);
+      const blocking = [...exact, ...biorisk].filter(
+        (finding) => finding.severity === 'blocking',
+      );
+      if (blocking.length > 0) {
+        showDiagnosticsPanel = true;
+        pushToast('error', m.riskExportBlocked(), m.riskExportBlockedBody({ v1: blocking.length }));
+        return;
+      }
       // Export using standard bioinformatics formats
       const seqData = {
         sequence: dnaSeq,
@@ -2572,8 +2797,16 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
   // SnapGene parity: Manual Feature Annotation
   function saveFeature() {
     const feat = editingFeature;
-    if (!feat.name || feat.start > feat.end) {
+    if (!feat.name) {
       pushToast('error', m.featureAnnotation(), m.toastFeatureNameRangeDesc());
+      return;
+    }
+    if (feat.start < 1 || feat.end < 1 || feat.start > dnaSeq.length || feat.end > dnaSeq.length) {
+      pushToast('error', m.featureAnnotation(), m.toastFeatureRangeBoundsDesc({ v1: dnaSeq.length }));
+      return;
+    }
+    if (feat.start > feat.end && linear) {
+      pushToast('error', m.featureAnnotation(), m.toastFeatureRangeLinearDesc());
       return;
     }
     if (feat.id !== undefined) {
@@ -3296,6 +3529,16 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
         <button class="menu-action-btn {showSynBioTools ? 'active' : ''}" onclick={() => showSynBioTools = !showSynBioTools}>
           <FlaskIcon size={12} /> {m.menuViewSynbio()}
         </button>
+        <button
+          class="menu-action-btn {showDiagnosticsPanel ? 'active' : ''}"
+          data-testid="gene-menu-diagnostics"
+          onclick={() => {
+            showDiagnosticsPanel = !showDiagnosticsPanel;
+            if (showDiagnosticsPanel) void riskCatalogStore.ensureLoaded();
+          }}
+        >
+          <Microscope size={12} /> {m.diagPanelTitle()}
+        </button>
         <button class="menu-action-btn {showSeqAnalysisPanel ? 'active' : ''}" onclick={() => showSeqAnalysisPanel = !showSeqAnalysisPanel}>
           <Search size={12} /> {m.menuViewBlast()}
         </button>
@@ -3550,7 +3793,7 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
                <span style="width: 10px; height: 10px; border-radius: 2px; background: {f.color}; display: inline-block;"></span>
                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title={f.name}>{f.name}</span>
                <span class="pix-num">{f.start}</span>
-               <span class="pix-num">{Math.abs(f.end - f.start) + 1}</span>
+               <span class="pix-num">{rangeLength(f, dnaSeq.length)}</span>
                <span class="pix-dim" style="text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title={f.type}>{f.type}</span>
                <button class="pix-btn-reset" onclick={(e) => { e.stopPropagation(); openFeatureEditor(f); }} title={m.menuEdit()} style="font-size: 10px; color: var(--pix-cyan); padding: 0 3px;">✎</button>
                <button class="pix-btn-reset" onclick={(e) => { e.stopPropagation(); deleteFeature(f.id); }} title={m.delete()} style="font-size: 10px; color: var(--pix-red); padding: 0 3px;">×</button>
@@ -4298,6 +4541,24 @@ import { Search, Plus, Trash2, GitMerge, FlaskConical as FlaskIcon, CaseSensitiv
       {geneFeatures}
       {pushLog}
       {pushToast}
+    />
+  {/if}
+
+  <!-- ============ DIAGNOSTICS PANEL ============ -->
+  {#if showDiagnosticsPanel}
+    <DiagnosticsPanel
+      findings={diagnosticFindings}
+      coverage={riskCatalogStore.coverage}
+      riskRecords={riskCatalogStore.amr?.records.length ?? 0}
+      bioriskInstalled={riskCatalogStore.commec?.installed ?? false}
+      bioriskModels={riskCatalogStore.commec?.models ?? 0}
+      bioriskVersion={riskCatalogStore.commec?.version ?? ''}
+      bioriskLoading={riskCatalogStore.bioriskLoading}
+      bioriskError={riskCatalogStore.bioriskError}
+      {drag}
+      onclose={() => (showDiagnosticsPanel = false)}
+      onlocate={locateDiagnostic}
+      onfix={applyDiagnosticFix}
     />
   {/if}
 

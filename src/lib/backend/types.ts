@@ -9,6 +9,65 @@ export interface Result<T> {
   error?: string;
 }
 
+/** Where a risk catalog came from; never conflate the bundled sample with a sync. */
+export type RiskCatalogOrigin = 'network' | 'cache' | 'builtin';
+
+export interface RiskCatalogEnvelope<T> {
+  source: string;
+  origin: RiskCatalogOrigin;
+  version: string;
+  fetchedAt: number;
+  licence: string;
+  endpoint: string | null;
+  error: string | null;
+  records: T[];
+}
+
+export interface AmrFinderRow {
+  gene: string;
+  /** The catalogue's own class: AMR, VIRULENCE or STRESS. */
+  kind: string;
+  allele: string;
+  description: string;
+  class: string;
+  subclass: string;
+  accession: string;
+  pattern: string;
+}
+
+export interface CommecStatus {
+  installed: boolean;
+  version: string;
+  path: string | null;
+  models: number;
+  mustFlagModels: number;
+  fetchedAt: number;
+  licence: string;
+  sourceUrl: string;
+  sha256: string;
+  error: string | null;
+}
+
+export interface BiosecEnvelope {
+  amr: RiskCatalogEnvelope<AmrFinderRow>;
+  commec: CommecStatus;
+}
+
+/** One profile-HMM match from the Commec biorisk database. */
+export interface BioriskHit {
+  model: string;
+  description: string;
+  mustFlag: boolean;
+  category: string;
+  evalue: number;
+  score: number;
+  coverage: number;
+  frame: number;
+  strand: string;
+  start: number;
+  end: number;
+}
+
 export interface Env {
   ph: number;
   tempK: number;

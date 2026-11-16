@@ -1,6 +1,5 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 import * as m from '$lib/paraglide/messages.js';
-import { normalizePayload } from '$lib/i18nMsg';
 import {
   parseSequenceFile,
   runLocalBlast,
@@ -9,7 +8,28 @@ import {
   findOrfsInPlasmid,
   findRnaStructures
 } from '$lib/genome';
-import type { Result, FoldOutput, ModelStatus, DownloadProgress, BuildOut, Env, MetricsOut, ScanPoint, ScanProgress, StepOut, GoldenGateResponse, GoldenGateAssemblyFragment, NativePocket, AdvancedPocketFeatures, PocketDelta } from './types';
+import type {
+  Result,
+  FoldOutput,
+  ModelStatus,
+  DownloadProgress,
+  BuildOut,
+  Env,
+  MetricsOut,
+  ScanPoint,
+  ScanProgress,
+  StepOut,
+  GoldenGateResponse,
+  GoldenGateAssemblyFragment,
+  NativePocket,
+  AdvancedPocketFeatures,
+  PocketDelta,
+  RiskCatalogEnvelope,
+  AmrFinderRow,
+  BiosecEnvelope,
+  BioriskHit,
+  CommecStatus,
+} from './types';
 import {
   demoFold,
   demoScan,
@@ -61,6 +81,65 @@ function parseFastaFeatures(text: string): { name: string; seq: string }[] {
   }
   flush();
   return out;
+}
+
+// Bundled AMR sample. Not a sync result; it exists so browser preview and a
+// fresh desktop install still screen. The biorisk database has no sample: a
+// profile HMM cannot be represented by a handful of short signatures.
+const AMR_BUILTIN_ROWS: AmrFinderRow[] = [
+  { gene: 'blaTEM-1', kind: 'AMR', allele: 'blaTEM-1', description: 'Beta-lactam (penicillins)', class: 'BETA-LACTAM', subclass: 'PENICILLIN', accession: 'sample:blaTEM-1', pattern: 'ATCAGTCAACC' },
+  { gene: "aph(3')-Ia", kind: 'AMR', allele: 'aph(3\')-Ia', description: 'Aminoglycoside (kanamycin)', class: 'AMINOGLYCOSIDE', subclass: 'KANAMYCIN', accession: 'sample:aph3-Ia', pattern: 'ATGAGCCATATTCAACGGG' },
+  { gene: 'tet(A)', kind: 'AMR', allele: 'tet(A)', description: 'Tetracycline', class: 'TETRACYCLINE', subclass: '', accession: 'sample:tetA', pattern: 'GTGATCCTGGG' },
+  { gene: 'catA1', kind: 'AMR', allele: 'catA1', description: 'Phenicol (chloramphenicol)', class: 'PHENICOL', subclass: '', accession: 'sample:catA1', pattern: 'ATGGAGAAAAAAATCACT' },
+  { gene: "aac(6')-Ib-cr", kind: 'AMR', allele: 'aac(6\')-Ib-cr', description: 'Aminoglycoside, fluoroquinolone', class: 'AMINOGLYCOSIDE', subclass: 'FLUOROQUINOLONE', accession: 'sample:aac6-Ib-cr', pattern: 'CCGCTCGTGT' },
+];
+
+const COMMEC_UNAVAILABLE: CommecStatus = {
+  installed: false,
+  version: '',
+  path: null,
+  models: 0,
+  mustFlagModels: 0,
+  fetchedAt: 0,
+  licence: 'MIT (IBBIS)',
+  sourceUrl: '',
+  sha256: '',
+  error: 'the biorisk database is only available in the desktop app',
+};
+
+function browserAmrCatalog(): RiskCatalogEnvelope<AmrFinderRow> {
+  if (typeof localStorage !== 'undefined') {
+    const cached = localStorage.getItem('spice_amrfinder_catalog');
+    if (cached) {
+      try {
+        const records = JSON.parse(cached) as AmrFinderRow[];
+        if (Array.isArray(records) && records.length > 0) {
+          return {
+            source: 'amrfinder',
+            origin: 'cache',
+            version: 'browser-cache',
+            fetchedAt: 0,
+            licence: 'Public domain (US Government Work)',
+            endpoint: null,
+            error: null,
+            records,
+          };
+        }
+      } catch {
+        // Corrupt browser cache must not masquerade as a catalog; fall through.
+      }
+    }
+  }
+  return {
+    source: 'amrfinder',
+    origin: 'builtin',
+    version: 'builtin',
+    fetchedAt: 0,
+    licence: 'bundled-sample',
+    endpoint: null,
+    error: null,
+    records: AMR_BUILTIN_ROWS,
+  };
 }
 
 export const backend = {
@@ -384,66 +463,31 @@ export const backend = {
     );
   },
 
-  async syncCardAmrDb(): Promise<Result<{ gene: string; resistanceTo: string; pattern: string }[]>> {
+  async syncAmrCatalog(endpoint?: string): Promise<Result<RiskCatalogEnvelope<AmrFinderRow>>> {
     return guarded(
-      () => invoke<{ gene: string; resistanceTo: string; pattern: string }[]>('sync_card_amr_db'),
-      () => {
-        if (typeof localStorage !== 'undefined') {
-          const cached = localStorage.getItem('spice_card_amr_db');
-          if (cached) {
-            try {
-              return JSON.parse(cached);
-            } catch {}
-          }
-        }
-        // Local curated fallback representing public CARD/ResFinder databases
-        return [
-          { gene: "blaTEM-1", resistanceTo: "Beta-lactam (Penicillins)", pattern: "ATCAGTCAACC" },
-          { gene: "kanR (aph(3')-Ia)", resistanceTo: "Aminoglycoside (Kanamycin)", pattern: "ATGAGCCATATTCAACGGG" },
-          { gene: "tet(A)", resistanceTo: "Tetracycline", pattern: "GTGATCCTGGG" },
-          { gene: "catA1 (CmR)", resistanceTo: "Phenicol (Chloramphenicol)", pattern: "ATGGAGAAAAAAATCACT" },
-          { gene: "aac(6')-Ib-cr", resistanceTo: "Aminoglycoside, Fluoroquinolone", pattern: "CCGCTCGTGT" }
-        ];
-      }
+      () => invoke<RiskCatalogEnvelope<AmrFinderRow>>('biosec_sync_amr', { endpoint: endpoint ?? null }),
+      () => browserAmrCatalog()
     );
   },
 
-  async syncBiosecurityDb(): Promise<Result<{ agent: string; pattern: string; description: string }[]>> {
+  async installCommec(): Promise<Result<CommecStatus>> {
     return guarded(
-      async () => normalizePayload(await invoke<{ agent: string; pattern: string; description: string }[]>('sync_biosecurity_db')),
-      () => {
-        if (typeof localStorage !== 'undefined') {
-          const cached = localStorage.getItem('spice_biosecurity_db');
-          if (cached) {
-            try {
-              return JSON.parse(cached);
-            } catch {}
-          }
-        }
-        // Local curated fallback representing standard IGSC/CDC biosecurity select agents and toxins
-        return [
-          {
-            agent: m.bioAgentRicin(),
-            pattern: "TCTGGAGCGCATGATT",
-            description: m.bioDescRicin()
-          },
-          {
-            agent: m.bioAgentBotulinum(),
-            pattern: "TTTGGATCCGGATAC",
-            description: m.bioDescBotulinum()
-          },
-          {
-            agent: m.bioAgentAnthraxLf(),
-            pattern: "ATGAAACACGAAAA",
-            description: m.bioDescAnthraxLf()
-          },
-          {
-            agent: m.bioAgentVariola(),
-            pattern: "TATAATGAGTCACA",
-            description: m.bioDescVariola()
-          }
-        ];
-      }
+      () => invoke<CommecStatus>('biosec_install_commec'),
+      () => COMMEC_UNAVAILABLE
+    );
+  },
+
+  async loadBiosec(): Promise<Result<BiosecEnvelope>> {
+    return guarded(
+      () => invoke<BiosecEnvelope>('biosec_load'),
+      () => ({ amr: browserAmrCatalog(), commec: COMMEC_UNAVAILABLE })
+    );
+  },
+
+  async screenBiorisk(sequence: string, circular: boolean): Promise<Result<BioriskHit[]>> {
+    return guarded(
+      () => invoke<BioriskHit[]>('biosec_screen', { sequence, circular }),
+      () => []
     );
   },
 

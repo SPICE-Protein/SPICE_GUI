@@ -1,19 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import * as m from '$lib/paraglide/messages.js';
-  import { normalizePayload } from '$lib/i18nMsg';
 
-  import { 
+  import {
     checkBioBrickCompatibility,
     verifyMoCloAssembly,
     estimateTransformationEfficiency,
     analyzeGeneticCircuits,
     estimateCopyNumberAndIncompatibility,
-    auditBiosecurityScreening,
-    auditCardAmrScreening,
     exportToSBOL
   } from '$lib/genome';
   import { searchBioParts, fetchPartSequence, type StandardBioPart } from '$lib/backend/externalDbs';
+  import { screenSequence } from '$lib/biosec/screen';
+  import { riskCatalogStore } from '$lib/biosec/store.svelte';
+  import type { DiagnosticFinding } from '$lib/diagnostics/types';
 
   let {
     showSynBioTools = $bindable(false),
@@ -32,9 +32,6 @@
     pushLog: (msg: string) => void;
     pushToast: (type: any, title: string, text?: string) => void;
   }>();
-
-  let customBiosecurityDb = $state<any[]>([]);
-  let customCardAmrDb = $state<any[]>([]);
 
   let synBioQuery = $state('');
   let synBioFilter = $state<'all' | 'promoter' | 'rbs' | 'cds' | 'terminator'>('all');
@@ -93,25 +90,7 @@
   }
 
   onMount(() => {
-    if (typeof localStorage !== 'undefined') {
-      const savedBio = localStorage.getItem('spice_biosecurity_db');
-      if (savedBio) {
-        try {
-          // Rows may carry `i18n:` codes from the Rust-synced DB.
-          customBiosecurityDb = normalizePayload(JSON.parse(savedBio));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      const savedAmr = localStorage.getItem('spice_card_amr_db');
-      if (savedAmr) {
-        try {
-          customCardAmrDb = JSON.parse(savedAmr);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
+    void riskCatalogStore.ensureLoaded();
   });
 
   let mocloVL = $state('GGAG');
@@ -126,8 +105,77 @@
   const trans = $derived(estimateTransformationEfficiency({ method: transMethod, dnaSizeBp: dnaSeq.length, quality: transQuality }));
   const gates = $derived(analyzeGeneticCircuits(geneFeatures));
   const copyEst = $derived(estimateCopyNumberAndIncompatibility(geneFeatures));
-  const securityAudit = $derived(auditBiosecurityScreening(dnaSeq, customBiosecurityDb));
-  const amrAudit = $derived(auditCardAmrScreening(dnaSeq, customCardAmrDb));
+  const riskHits = $derived(
+    screenSequence(dnaSeq, riskCatalogStore.catalogs, { circular: true })
+  );
+  const amrHits = $derived(riskHits.filter((hit) => hit.evidence?.category === 'amr'));
+  const catalogueCoverage = $derived(riskCatalogStore.coverage);
+  // A bundled sample or a missing catalogue must not read as a clean screen.
+  const catalogueLevel = $derived(
+    catalogueCoverage === 'none'
+      ? 'N/A'
+      : catalogueCoverage === 'sample'
+        ? 'SAMPLE'
+        : amrHits.length === 0
+          ? 'SAFE'
+          : 'MATCH DETECTED',
+  );
+  const catalogueColor = $derived(
+    catalogueCoverage === 'none' || catalogueCoverage === 'sample'
+      ? 'rgba(255,255,255,0.4)'
+      : amrHits.length === 0
+        ? 'var(--pix-green)'
+        : 'var(--pix-warning)',
+  );
+
+  let bioriskHits = $state<DiagnosticFinding[]>([]);
+  let bioriskToken = 0;
+  $effect(() => {
+    const sequence = dnaSeq;
+    if (!riskCatalogStore.commec?.installed) {
+      bioriskHits = [];
+      return;
+    }
+    const token = ++bioriskToken;
+    const timer = setTimeout(() => {
+      void riskCatalogStore.screenBiorisk(sequence, true).then((findings) => {
+        if (token === bioriskToken) bioriskHits = findings;
+      });
+    }, 700);
+    return () => clearTimeout(timer);
+  });
+  const securityHits = $derived(bioriskHits);
+  const bioriskReady = $derived(riskCatalogStore.commec?.installed === true);
+  const securityLevel = $derived(
+    !bioriskReady ? 'N/A' : securityHits.length === 0 ? 'LOW' : 'HIGH_RISK',
+  );
+  const securityColor = $derived(
+    !bioriskReady
+      ? 'rgba(255,255,255,0.4)'
+      : securityHits.length === 0
+        ? 'var(--pix-green)'
+        : 'var(--pix-red)',
+  );
+
+  async function downloadSbol() {
+    const blocking = [...amrHits, ...bioriskHits].filter(
+      (finding) => finding.severity === 'blocking',
+    );
+    if (blocking.length > 0) {
+      pushToast('error', m.riskExportBlocked(), m.riskExportBlockedBody({ v1: blocking.length }));
+      return;
+    }
+    const xml = exportToSBOL(plasmidName || 'SPICE_Plasmid', dnaSeq, geneFeatures);
+    const blob = new Blob([xml], { type: 'text/xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${plasmidName || 'SPICE_Plasmid'}_sbol2.xml`;
+    a.click();
+    URL.revokeObjectURL(url);
+    pushToast('success', m.exportSuccess(), m.synbioSbolDownloadedDesc());
+    pushLog(m.synbioLogSbolExport({ v1: plasmidName }));
+  }
 </script>
 
 <div use:drag={'.panel-header'} class="floating-panel pix-panel" style="position: absolute; left: 340px; top: 180px; width: 350px; z-index: 60; max-height: 480px; display: flex; flex-direction: column;">
@@ -140,20 +188,9 @@
     <!-- SBOL standard exporter -->
     <div class="pix-panel" style="padding: 5px; border-color: rgba(255,255,255,0.05); background: rgba(255,255,255,0.01);">
       <div style="font-weight: bold; color: var(--pix-cyan); font-size: 8.5px; margin-bottom: 3px;">{m.stepSbolExport()}</div>
-      <button 
-        class="pix-btn ok" 
-        onclick={() => {
-          const xml = exportToSBOL(plasmidName || 'SPICE_Plasmid', dnaSeq, geneFeatures);
-          const blob = new Blob([xml], { type: 'text/xml' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${plasmidName || 'SPICE_Plasmid'}_sbol2.xml`;
-          a.click();
-          URL.revokeObjectURL(url);
-          pushToast('success', m.exportSuccess(), m.synbioSbolDownloadedDesc());
-          pushLog(m.synbioLogSbolExport({ v1: plasmidName }));
-        }}
+      <button
+        class="pix-btn ok"
+        onclick={downloadSbol}
         style="width: 100%; padding: 4px; font-weight: bold;"
       >
         📥 {m.synbioSbolExportBtn()}
@@ -283,28 +320,32 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span class="pix-dim" style="font-weight: bold;">{m.synbioSecurityLevelLabel()}</span>
-          <span class="pix-num" style="color: {securityAudit.passed ? 'var(--pix-green)' : 'var(--pix-red)'}; font-weight: bold;">{securityAudit.securityLevel}</span>
+          <span class="pix-num" style="color: {securityColor}; font-weight: bold;">{securityLevel}</span>
         </div>
-        {#each securityAudit.flags as flag}
+        {#each securityHits as hit}
           <div style="font-size: 7.5px; color: var(--pix-red); background: rgba(239, 68, 68, 0.08); border-left: 2px solid var(--pix-red); padding: 3px; margin-top: 2px; line-height: 1.3; border-radius: 2px;">
-            <b>⚠️ {m.synbioRiskFlagLabel()}</b>: {flag.agent}<br/>
-            <b>{m.synbioDescLabel()}</b>: {flag.description}
+            <b>⚠️ {m.synbioRiskFlagLabel()}</b>: {hit.params?.name}<br/>
+            <b>{m.synbioDescLabel()}</b>: {hit.params?.description}
           </div>
         {:else}
-          <div class="pix-dim" style="font-size: 7.5px; text-align: center; color: var(--pix-green);">✓ {m.synbioSecurityOk()}</div>
+          {#if bioriskReady}
+            <div class="pix-dim" style="font-size: 7.5px; text-align: center; color: var(--pix-green);">✓ {m.synbioSecurityOk()}</div>
+          {:else}
+            <div class="pix-dim" style="font-size: 7.5px; text-align: center;">{m.diagPanelBioriskMissing()}</div>
+          {/if}
         {/each}
 
         <div style="border-top: 1px dashed rgba(255,255,255,0.05); margin: 1px 0;"></div>
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span class="pix-dim" style="font-weight: bold;">{m.synbioAmrLabel()}</span>
-          <span class="pix-num" style="color: {amrAudit.passed ? 'var(--pix-green)' : 'var(--pix-warning)'}; font-weight: bold;">{amrAudit.passed ? 'SAFE' : 'AMR DETECTED'}</span>
+          <span class="pix-num" style="color: {catalogueColor}; font-weight: bold;">{catalogueLevel}</span>
         </div>
-        {#each amrAudit.flags as flag}
+        {#each amrHits as hit}
           <div style="font-size: 7.5px; color: var(--pix-warning); background: rgba(226, 180, 72, 0.08); border-left: 2px solid var(--pix-warning); padding: 3px; margin-top: 2px; line-height: 1.3; border-radius: 2px;">
-            <b>⚠️ {m.synbioAmrFlagLabel()}</b>: {flag.gene}<br/>
-            <b>{m.synbioAmrTypeLabel()}</b>: {flag.resistanceTo}<br/>
-            <b>{m.synbioAmrMotifLabel()}</b>: <span class="mono">{flag.matches}</span>
+            <b>⚠️ {m.synbioAmrFlagLabel()}</b>: {hit.params?.name}<br/>
+            <b>{m.synbioAmrTypeLabel()}</b>: {hit.params?.description}<br/>
+            <b>{m.synbioAmrMotifLabel()}</b>: <span class="mono">{hit.params?.pattern}</span>
           </div>
         {:else}
           <div class="pix-dim" style="font-size: 7.5px; text-align: center; color: var(--pix-green);">✓ {m.synbioAmrOk()}</div>

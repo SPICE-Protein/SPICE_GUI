@@ -32,6 +32,23 @@ describe('Settings', () => {
     expect(await check.isEnabled()).toBe(true);
   });
 
+  it('lists both risk database syncs on the Gene Editor tab', async () => {
+    await clickTestId('settings-tab-gene');
+    // Button and heading text renders uppercase through CSS.
+    const text = (await browser.execute(() => document.body.innerText)).toUpperCase();
+    expect(text).toContain('NCBI AMRFINDERPLUS');
+    expect(text).toContain('IBBIS COMMEC');
+
+    const buttons = await $$('button');
+    const labels = [];
+    for (const button of buttons) labels.push((await button.getText()).trim().toUpperCase());
+    // The control reflects the on-disk state; nothing is fetched without it.
+    expect(
+      labels.some((label) => label === 'INSTALL BIORISK DATABASE' || label === 'CHECK FOR UPDATE'),
+    ).toBe(true);
+    expect(labels).toContain('SYNC AMRFINDERPLUS');
+  });
+
   it('changes the theme and saves all settings', async () => {
     const selects = await $$('select');
     expect(selects.length).toBeGreaterThan(0);

@@ -8,6 +8,7 @@ import { calculateSantaLuciaTm } from '$lib/genome/tm';
 import { getReverseComplementSequenceString } from '$lib/genome/sequence';
 import { addMemory, loadMemory, removeMemory, type MemoryEntry } from '$lib/ai/memory';
 import { appendAudit, clearAudit, loadAudit, type AuditEntry, type AuditKind } from '$lib/ai/audit';
+import type { GenePlanApplication } from '$lib/gene/workspaceIntents';
 
 export interface ChatMessage {
   id: number;
@@ -172,16 +173,25 @@ ATGCGTACGT...
     plasmidName: string;
     gcContent: number;
     codonHost: string;
+    topology: 'circular' | 'linear';
+    version: string;
+    features: { id: number; name: string; start: number; end: number; type: string; forward?: boolean }[];
   }>({
     dnaSequence: '',
     plasmidName: '',
     gcContent: 0,
     codonHost: '',
+    topology: 'circular',
+    version: '',
+    features: [],
   });
 
   // Callbacks supplied by pages to inject sequences or mutations
   onApplyProteinSequence: ((seq: string) => void) | null = null;
   onApplyDnaSequence: ((seq: string) => void) | null = null;
+  onApplyGenePlan:
+    | ((intents: unknown, expectedVersion?: string) => GenePlanApplication | Promise<GenePlanApplication>)
+    | null = null;
   onImportMutations: ((muts: { pos: number; from: string; to: string }[]) => void) | null = null;
   onUndoAiChange = $state<(() => void) | null>(null);
 

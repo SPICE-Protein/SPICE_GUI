@@ -245,6 +245,10 @@ export function toGenBank(seqData: SequenceData): string {
     if (feat.locations && feat.locations.length > 1) {
       const parts = feat.locations.map((l: any) => `${l.start + 1}..${l.end + 1}`);
       locStr = `join(${parts.join(",")})`;
+    } else if (end1 < start1) {
+      // A feature that crosses the origin has to be written as two parts; no
+      // format accepts a span whose start is past its end.
+      locStr = `join(${start1}..${size},1..${end1})`;
     } else {
       locStr = `${start1}..${end1}`;
     }
@@ -389,7 +393,7 @@ export function toEmbl(seqData: SequenceData): string {
     const fType = (feat.type || "misc_feature");
     const start1 = (feat.start ?? 0) + 1;
     const end1 = (feat.end ?? 0) + 1;
-    let locStr = `${start1}..${end1}`;
+    let locStr = end1 < start1 ? `join(${start1}..${size},1..${end1})` : `${start1}..${end1}`;
     if (feat.forward === false || feat.strand === -1) {
       locStr = `complement(${locStr})`;
     }

@@ -56,6 +56,8 @@ tauri-plugin-wdio = { version = "1.5.1", optional = true }
 # Only the core algorithms are needed; image codecs are handled by the webview.
 image = { version = "0.25.8", default-features = false }
 imageproc = { version = "0.27.0", default-features = false }
+rustyhmmer = "0.1.4"
+csv = "1.4"
 
 # Cargo patches do NOT propagate from a dependency's manifest — they only apply
 # from the root crate. spice_engine's own Cargo.toml declares these patches; we

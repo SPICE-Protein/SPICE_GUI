@@ -75,7 +75,9 @@ function completionFor(body) {
   if (prompt.includes('E2E-APPROVE') || prompt.includes('E2E-REJECT')) {
     return {
       toolCalls: [toolCall('apply_dna_sequence', {
-        sequence: 'ATGCGTACGTAGCTAGCTAGCTAGCTAGCTAA',
+        // Longer than every demo feature, so an approved replace_sequence keeps
+        // the document valid; a shorter payload is refused by the intent gate.
+        sequence: 'ATGCGTACGTAGCTAGCTAGCTAGCTAGCTAAGCATG'.repeat(150),
         reason: 'E2E approval flow',
       })],
     };

@@ -190,7 +190,7 @@ The `Features` tab is headed `Annotations (N)` with `Add Feature...` and `Auto-A
 
 ### 5.1 Add or edit a feature
 
-The `Feature Editor` modal has `Name`, `Start`, `End` (1-based, inclusive), `Type`, `Color`, and a `Forward strand` checkbox. The `+` next to `Type` adds a custom type. A blank name or `start > end` is rejected. Saving creates a history snapshot.
+The `Feature Editor` modal has `Name`, `Start`, `End` (1-based, inclusive), `Type`, `Color`, and a `Forward strand` checkbox. The `+` next to `Type` adds a custom type. A blank name is rejected, and both positions must lie inside the sequence. On a circular construct `Start` may be past `End`, which stores a feature that crosses the origin; the same range is rejected on a linear construct. Saving creates a history snapshot.
 
 ### 5.2 Auto-annotate
 
@@ -434,10 +434,10 @@ These are descriptive scans. They use simplified models; confirm promoter, RBS, 
 - MoClo overhang check and assembly-level determination.
 - Transformation efficiency estimate (chemical or electroporation, supercoiled or ligation product).
 - Genetic circuit motif detection.
-- Copy-number classification and biosecurity review, including CARD AMR screening.
+- Copy-number classification and biosecurity review, including AMRFinderPlus catalogue screening and Commec biorisk screening.
 - SynBioHub registry search and import. Imported parts are appended to the end of the plasmid, not inserted at a chosen site.
 
-The AMR and biosecurity checks are screening aids, not regulatory clearance. Review any resistance marker and host range before use.
+The catalogue and biosecurity checks are screening aids, not regulatory clearance. Review any resistance marker, virulence factor and host range before use. `Analysis & Views → Diagnostics` shows the same matches with spans and severities alongside structural and scientific findings; sequence and SBOL export are refused while a blocking match is unresolved.
 
 ### 13.6 BLAST and evolution
 

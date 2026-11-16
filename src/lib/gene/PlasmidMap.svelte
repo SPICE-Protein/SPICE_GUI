@@ -4,6 +4,7 @@
   import * as m from '$lib/paraglide/messages.js';
   import { Camera, Scissors, MousePointer, Hand, ZoomIn, ZoomOut, RotateCcw, RotateCw } from 'lucide-svelte';
   import { rotateBpsToPosition } from '$lib/genome';
+  import { rangeLength } from './featureRange';
 
   // Import modular Canvas components
   import CircularMapCanvas from './CircularMapCanvas.svelte';
@@ -280,7 +281,7 @@
                     </div>
                     <div style="display: flex; justify-content: space-between;">
                       <span>{m.size()}</span>
-                      <span class="pix-num" style="color: var(--pix-fg);">{feat.end - feat.start + 1} bp</span>
+                      <span class="pix-num" style="color: var(--pix-fg);">{rangeLength(feat, dnaSeq.length)} bp</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
                       <span>{m.strand()}</span>

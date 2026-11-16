@@ -5,7 +5,9 @@
     Card, Divider, Select, Button, ProgressBar, Toggle
   } from 'svelte-multistyle-ui';
   import { backend, isTauri } from '$lib/backend/api';
-  import type { DownloadProgress, ModelStatus } from '$lib/backend/types';
+  import type { CommecStatus, DownloadProgress, ModelStatus } from '$lib/backend/types';
+  import { riskCatalogStore } from '$lib/biosec/store.svelte';
+  import { listen } from '@tauri-apps/api/event';
   import { pushToast } from '$lib/ui/toast.svelte.ts';
   import Toaster from '$lib/ui/Toaster.svelte';
   import * as m from '$lib/paraglide/messages.js';
@@ -261,11 +263,24 @@
   let isSyncingRebase = $state(false);
   let rebaseCount = $state((typeof localStorage !== 'undefined' && Number(localStorage.getItem('spice_rebase_count'))) || 820);
 
-  // Sync states for CARD AMR and IGSC Biosecurity databases (Feature 19)
-  let isSyncingCardAmr = $state(false);
-  let cardAmrCount = $state((typeof localStorage !== 'undefined' && Number(localStorage.getItem('spice_card_amr_count'))) || 5);
-  let isSyncingBiosecurity = $state(false);
-  let biosecurityCount = $state((typeof localStorage !== 'undefined' && Number(localStorage.getItem('spice_biosecurity_count'))) || 4);
+  // Risk databases: NCBI AMRFinderPlus (AMR) and IBBIS Commec (biorisk).
+  let isSyncingAmr = $state(false);
+  let amrEndpoint = $state(
+    (typeof localStorage !== 'undefined' && localStorage.getItem('spice_amrfinder_endpoint')) || ''
+  );
+  let isInstallingCommec = $state(false);
+  let commecProgress = $state<{ downloaded: number; total: number } | null>(null);
+
+  function catalogOriginLabel(origin: string) {
+    if (origin === 'network') return m.riskOriginNetwork();
+    if (origin === 'cache') return m.riskOriginCache();
+    return m.riskOriginBuiltin();
+  }
+
+  function formatCatalogTime(seconds: number) {
+    if (!seconds) return m.riskNeverSynced();
+    return new Date(seconds * 1000).toLocaleString();
+  }
 
   // ---------------- PROTEIN SETTINGS ----------------
   let integrationStep = $state((typeof localStorage !== 'undefined' && localStorage.getItem('spice_integration_step')) || '1.0');
@@ -296,9 +311,26 @@
     statusBusy = false;
     shortcuts = loadKeymap();
     void loadAppVersion();
+    void riskCatalogStore.ensureLoaded();
     // A saved ORCID re-verifies automatically so the ELN author field is
     // enabled without a manual click after each app start.
     if (orcidInput.trim()) void loadOrcidProfile();
+  });
+
+  onMount(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void listen<{ phase: string; downloaded: number; total: number }>(
+      'biosec-install-progress',
+      (event) => {
+        if (event.payload.phase !== 'download') return;
+        commecProgress = {
+          downloaded: event.payload.downloaded,
+          total: event.payload.total,
+        };
+      },
+    ).then((stop) => (unlisten = stop));
+    return () => unlisten?.();
   });
 
   async function checkModel() {
@@ -357,35 +389,50 @@
     }
   }
 
-  async function handleSyncCardAmr() {
-    isSyncingCardAmr = true;
-    pushToast('success', m.toastSyncCard(), m.toastSyncCardBody());
+  async function handleSyncAmr() {
+    isSyncingAmr = true;
     try {
-      const res = await backend.syncCardAmrDb();
-      cardAmrCount = res.data.length;
-      localStorage.setItem('spice_card_amr_count', String(cardAmrCount));
-      localStorage.setItem('spice_card_amr_db', JSON.stringify(res.data));
-      pushToast('success', m.toastSyncCardSuccess(), m.toastSyncCardSuccessBody({ n: cardAmrCount }));
+      const catalog = await riskCatalogStore.refreshAmr(amrEndpoint.trim() || undefined);
+      localStorage.setItem('spice_amrfinder_endpoint', amrEndpoint.trim());
+      if (catalog.origin === 'network') {
+        pushToast(
+          'success',
+          m.toastSyncAmrSuccess(),
+          m.toastSyncAmrSuccessBody({ n: catalog.records.length }),
+        );
+      } else {
+        pushToast(
+          'warn',
+          m.toastSyncAmrFailed(),
+          catalog.error || m.riskLocalCopyUsed(),
+        );
+      }
     } catch (e: any) {
-      pushToast('error', m.toastSyncCardFailed(), e.message ?? e);
+      pushToast('error', m.toastSyncAmrFailed(), e.message ?? e);
     } finally {
-      isSyncingCardAmr = false;
+      isSyncingAmr = false;
     }
   }
 
-  async function handleSyncBiosecurity() {
-    isSyncingBiosecurity = true;
-    pushToast('success', m.toastSyncIgsc(), m.toastSyncIgscBody());
+  async function handleInstallCommec() {
+    isInstallingCommec = true;
+    commecProgress = null;
     try {
-      const res = await backend.syncBiosecurityDb();
-      biosecurityCount = res.data.length;
-      localStorage.setItem('spice_biosecurity_count', String(biosecurityCount));
-      localStorage.setItem('spice_biosecurity_db', JSON.stringify(res.data));
-      pushToast('success', m.toastSyncIgscSuccess(), m.toastSyncIgscSuccessBody({ n: biosecurityCount }));
+      const status = await riskCatalogStore.installCommec();
+      if (status.installed) {
+        pushToast(
+          'success',
+          m.toastCommecInstalled(),
+          m.toastCommecInstalledBody({ n: status.models }),
+        );
+      } else {
+        pushToast('error', m.toastCommecFailed(), status.error ?? m.demoModeNoTauri());
+      }
     } catch (e: any) {
-      pushToast('error', m.toastSyncIgscFailed(), e.message ?? e);
+      pushToast('error', m.toastCommecFailed(), e.message ?? e);
     } finally {
-      isSyncingBiosecurity = false;
+      isInstallingCommec = false;
+      commecProgress = null;
     }
   }
 
@@ -813,46 +860,81 @@
 
               <Divider {...ui} />
 
-              <!-- CARD AMR Database Sync -->
-              <div class="pix-title" style="font-size: 11px; font-weight: bold; color: var(--pix-cyan);">{m.cardSyncTitle()}</div>
+              <!-- NCBI AMRFinderPlus -->
+              <div class="pix-title" style="font-size: 11px; font-weight: bold; color: var(--pix-cyan);">{m.amrSyncTitle()}</div>
               <div class="pix-dim" style="line-height: 1.3;">
-                {m.cardSyncDesc()}
+                {m.amrSyncDesc()}
               </div>
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15); padding: 8px; border: 1px dashed var(--pix-border); border-radius: 3px;">
-                <span class="pix-dim">{m.cachedCardAmr()}</span>
-                <span class="pix-num" style="color: var(--pix-green); font-size: 12px; font-weight: bold;">{cardAmrCount} {m.unitKinds()}</span>
+                <span class="pix-dim">{m.amrCatalogRecords()}</span>
+                <span class="pix-num" style="color: var(--pix-green); font-size: 12px; font-weight: bold;">{riskCatalogStore.amr?.records.length ?? 0} {m.unitEntries()}</span>
               </div>
 
-              <button 
-                class="pix-btn" 
-                disabled={isSyncingCardAmr} 
-                onclick={handleSyncCardAmr} 
+              <input class="pix-input" type="url" bind:value={amrEndpoint} onchange={() => localStorage.setItem('spice_amrfinder_endpoint', amrEndpoint.trim())} placeholder="https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/latest/" style="padding: 4px 6px;" />
+              <div class="pix-dim" style="font-size: 9px; line-height: 1.3;">
+                {m.riskCatalogOrigin({ v1: catalogOriginLabel(riskCatalogStore.amr?.origin ?? 'builtin') })} · {formatCatalogTime(riskCatalogStore.amr?.fetchedAt ?? 0)}
+                {#if riskCatalogStore.amr?.version && riskCatalogStore.amr?.origin !== 'builtin'}
+                  · {riskCatalogStore.amr.version}
+                {/if}
+              </div>
+              {#if riskCatalogStore.amr?.error}
+                <div class="pix-dim" style="font-size: 9px; color: var(--pix-accent); line-height: 1.3;">{riskCatalogStore.amr.error}</div>
+              {/if}
+
+              <button
+                class="pix-btn"
+                disabled={isSyncingAmr}
+                onclick={handleSyncAmr}
                 style="width: 100%; padding: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
               >
-                <RefreshCw size={11} class={isSyncingCardAmr ? 'spin' : ''} /> {isSyncingCardAmr ? m.syncing() : m.syncCardBtn()}
+                <RefreshCw size={11} class={isSyncingAmr ? 'spin' : ''} /> {isSyncingAmr ? m.syncing() : m.syncAmrBtn()}
               </button>
 
               <Divider {...ui} />
 
-              <!-- IGSC Biosecurity Database Sync -->
-              <div class="pix-title" style="font-size: 11px; font-weight: bold; color: var(--pix-cyan);">{m.igscSyncTitle()}</div>
+              <!-- IBBIS Commec biorisk database -->
+              <div class="pix-title" style="font-size: 11px; font-weight: bold; color: var(--pix-cyan);">{m.commecInstallTitle()}</div>
               <div class="pix-dim" style="line-height: 1.3;">
-                {m.igscSyncDesc()}
+                {m.commecInstallDesc()}
               </div>
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15); padding: 8px; border: 1px dashed var(--pix-border); border-radius: 3px;">
-                <span class="pix-dim">{m.cachedBiosecurity()}</span>
-                <span class="pix-num" style="color: var(--pix-green); font-size: 12px; font-weight: bold;">{biosecurityCount} {m.unitKinds()}</span>
+                <span class="pix-dim">{m.commecStatusLabel()}</span>
+                <span class="pix-num" style="color: {riskCatalogStore.commec?.installed ? 'var(--pix-green)' : 'var(--pix-accent)'}; font-size: 12px; font-weight: bold;">
+                  {riskCatalogStore.commec?.installed
+                    ? m.commecModels({ n: riskCatalogStore.commec.models })
+                    : m.commecNotInstalled()}
+                </span>
               </div>
 
-              <button 
-                class="pix-btn" 
-                disabled={isSyncingBiosecurity} 
-                onclick={handleSyncBiosecurity} 
+              {#if riskCatalogStore.commec?.installed}
+                <div class="pix-dim" style="font-size: 9px; line-height: 1.3;">
+                  {m.commecVersion({ v1: riskCatalogStore.commec.version || 'unknown' })} · {formatCatalogTime(riskCatalogStore.commec.fetchedAt)}
+                  {#if riskCatalogStore.commec.mustFlagModels}
+                    · {m.commecFlagged({ n: riskCatalogStore.commec.mustFlagModels })}
+                  {/if}
+                </div>
+                {#if riskCatalogStore.commec.sha256}
+                  <div class="pix-dim" style="font-size: 9px; font-family: monospace; line-height: 1.3; word-break: break-all;">sha256:{riskCatalogStore.commec.sha256.slice(0, 16)}…</div>
+                {/if}
+              {/if}
+              {#if riskCatalogStore.commec?.error && !riskCatalogStore.commec.installed}
+                <div class="pix-dim" style="font-size: 9px; color: var(--pix-accent); line-height: 1.3;">{riskCatalogStore.commec.error}</div>
+              {/if}
+
+              <button
+                class="pix-btn"
+                disabled={isInstallingCommec}
+                onclick={handleInstallCommec}
                 style="width: 100%; padding: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
               >
-                <RefreshCw size={11} class={isSyncingBiosecurity ? 'spin' : ''} /> {isSyncingBiosecurity ? m.syncing() : m.syncIgscBtn()}
+                <CloudDownload size={11} class={isInstallingCommec ? 'spin' : ''} />
+                {isInstallingCommec
+                  ? m.commecDownloading({ pct: commecProgress && commecProgress.total > 0 ? Math.round((commecProgress.downloaded / commecProgress.total) * 100) : 0 })
+                  : riskCatalogStore.commec?.installed
+                    ? m.commecUpdateBtn()
+                    : m.commecInstallBtn()}
               </button>
 
               <Divider {...ui} />

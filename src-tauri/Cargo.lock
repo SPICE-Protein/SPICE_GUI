@@ -4973,6 +4973,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "rustyhmmer"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97726a4fdfafa9c30b8bcbacfbdbb926d7a0cffc9fcf37bbceaa5e1d3aceff5c"
+dependencies = [
+ "rayon",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5567,6 +5576,7 @@ version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bio",
+ "csv",
  "image",
  "imageproc",
  "libmsa",
@@ -5576,6 +5586,7 @@ dependencies = [
  "ort",
  "regex",
  "reqwest 0.12.28",
+ "rustyhmmer",
  "serde",
  "serde_json",
  "sha2 0.10.9",

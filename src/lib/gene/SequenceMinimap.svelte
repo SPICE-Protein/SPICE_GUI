@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { rangeSegments } from './featureRange';
 
   let {
     dna = '',
@@ -51,12 +52,15 @@
 
     // Feature blocks (SnapGene-style: colored bars matching main view)
     for (const feat of geneFeatures) {
-      const left = ((feat.start - 1) / dna.length) * w;
-      const fw = ((feat.end - feat.start + 1) / dna.length) * w;
-      const { x, w: cw } = clampInterval(left, Math.max(fw, 2), w);
-      if (cw > 0) {
-        ctx.fillStyle = feat.color;
-        ctx.fillRect(x, 3, cw, h - 6);
+      // A feature that crosses the origin occupies both ends of the strip.
+      for (const segment of rangeSegments(feat, dna.length)) {
+        const left = ((segment.start - 1) / dna.length) * w;
+        const fw = ((segment.end - segment.start + 1) / dna.length) * w;
+        const { x, w: cw } = clampInterval(left, Math.max(fw, 2), w);
+        if (cw > 0) {
+          ctx.fillStyle = feat.color;
+          ctx.fillRect(x, 3, cw, h - 6);
+        }
       }
     }
 

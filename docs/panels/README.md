@@ -63,6 +63,7 @@ Each page states the exact menu path. A panel is a floating window unless the pa
 | [Sanger Clone Validator](gene/sanger-validator.md) | **Analysis & Views → Sanger Clone Validator** |
 | [Advanced Genomics Tools](gene/genomics.md) | **Analysis & Views → Advanced Genomics Tools** |
 | [Synthetic Biology CAD](gene/synbio.md) | **Analysis & Views → Synthetic Biology CAD** |
+| [Diagnostics](gene/diagnostics.md) | **Analysis & Views → Diagnostics** |
 | [Sequence BLAST & Evolution](gene/blast-evolution.md) | **Analysis & Views → Sequence BLAST & Evolution** |
 | [Sequence Alignment](gene/alignment.md) | **Analysis & Views → Sequence Alignment** |
 | [GC Sliding Window](gene/gc-window.md) | **Analysis & Views → GC Sliding Window** |

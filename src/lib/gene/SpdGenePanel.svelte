@@ -13,6 +13,8 @@
   } from '$lib/spd/biobricks';
   import { loadVectorTemplate, type LoadedVectorTemplate } from '$lib/spd/vectors';
   import { spdInspector } from '$lib/spd/inspector.svelte';
+  import { riskCatalogStore } from '$lib/biosec/store.svelte';
+  import { screenSequence } from '$lib/biosec/screen';
   import type { SpdActivitySubmission, SpdBiobrickSummary, SpdGeneListRow } from '$lib/spd/types';
 
   let {
@@ -88,6 +90,17 @@
     if (!ws.sequence.trim()) { publishMessage = m.spdGenePublishNoSeq(); return; }
     const name = nameInput.trim() || ws.name.trim();
     if (!name) { publishMessage = m.spdGenePublishNoName(); return; }
+    const exact = screenSequence(ws.sequence, riskCatalogStore.catalogs, {
+      circular: ws.circular,
+    });
+    const biorisk = await riskCatalogStore.screenBiorisk(ws.sequence, ws.circular);
+    const blocking = [...exact, ...biorisk].filter(
+      (finding) => finding.severity === 'blocking',
+    );
+    if (blocking.length > 0) {
+      publishMessage = m.riskExportBlockedBody({ v1: blocking.length });
+      return;
+    }
 
     publishing = true;
     publishMessage = '';

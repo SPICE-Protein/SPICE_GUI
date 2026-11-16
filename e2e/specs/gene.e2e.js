@@ -54,6 +54,7 @@ const TOGGLE_PANELS = [
   ['gene-menu-analysis', 'Sanger Clone Validator'],
   ['gene-menu-analysis', 'Advanced Genomics Tools'],
   ['gene-menu-analysis', 'Synthetic Biology CAD'],
+  ['gene-menu-analysis', 'Diagnostics'],
   ['gene-menu-analysis', 'Sequence BLAST & Evolution'],
   ['gene-menu-analysis', 'Sequence Alignment'],
   ['gene-menu-analysis', 'GC Sliding Window'],
@@ -117,6 +118,46 @@ describe('Gene Editor', () => {
 
   it('opens and closes every Analysis/Window panel', async () => {
     await togglePanels(TOGGLE_PANELS.slice(20));
+  });
+
+  it('reports diagnostics for the open document and locates a finding', async () => {
+    await uploadTo('gene-file-input', './e2e/fixtures/diagnostics.fasta');
+    const toast = await $('.toast');
+    await toast.waitForDisplayed({ timeout: 15000 });
+
+    await clickMenuAction('gene-menu-analysis', 'Diagnostics');
+    const panel = await expectTestId('gene-diagnostics-panel');
+    const text = await panel.getText();
+    // The coverage line names the catalogue copy in use and the biorisk state.
+    expect(text).toContain('Risk catalogs:');
+    expect(text.toLowerCase()).toContain('gc');
+
+    const locate = await panel.$('.//button[normalize-space(.)="Locate"]');
+    await locate.waitForExist({ timeout: 10000 });
+    await locate.scrollIntoView({ block: 'center' });
+    await locate.click();
+    await expect(panel).toBeDisplayed();
+
+    const close = await panel.$('.//button[normalize-space(.)="[X]"]');
+    await close.click();
+    await panel.waitForDisplayed({ timeout: 10000, reverse: true });
+  });
+
+  it('reports the demo backbone as a 4522 bp feature across the origin, not a structural error', async () => {
+    await clickTabByText('Features');
+    const row = await $(
+      '//div[contains(@class,"pix-panel")][.//span[contains(normalize-space(.), "pS8c-vector_backbone")]][not(.//div[contains(@class,"pix-panel")])]',
+    );
+    await row.waitForExist({ timeout: 10000 });
+    expect(await row.getText()).toContain('4522');
+
+    await clickMenuAction('gene-menu-analysis', 'Diagnostics');
+    const panel = await expectTestId('gene-diagnostics-panel');
+    expect(await panel.getText()).not.toContain('Feature outside the sequence');
+
+    const close = await panel.$('.//button[normalize-space(.)="[X]"]');
+    await close.click();
+    await panel.waitForDisplayed({ timeout: 10000, reverse: true });
   });
 
   it('opens and closes every modal from the menu bar', async () => {

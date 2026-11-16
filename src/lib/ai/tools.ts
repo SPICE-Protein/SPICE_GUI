@@ -24,6 +24,10 @@ import { searchMemory, type MemoryEntry } from './memory';
 import type { McpToolDescriptor, McpServerConfig } from './mcp';
 import { callMcpTool } from './mcp';
 import { CHART_PALETTE } from '$lib/tools/figure/types';
+import type { GenePlanApplication } from '$lib/gene/workspaceIntents';
+import type { RiskCatalog } from '$lib/biosec/types';
+import type { DiagnosticFinding } from '$lib/diagnostics/types';
+import { screenSequence } from '$lib/biosec/screen';
 import {
   dispatchFigureCommand,
   figureToolActive,
@@ -42,6 +46,15 @@ export interface AgentToolResult {
 
 export interface AgentActions {
   applyDnaSequence?: (sequence: string) => void;
+  /**
+   * Typed-intent door into the gene workspace. The host page validates and
+   * applies the whole plan atomically, and rejects it when the workspace no
+   * longer matches `expectedVersion`.
+   */
+  applyGenePlan?: (
+    intents: unknown,
+    expectedVersion?: string,
+  ) => GenePlanApplication | Promise<GenePlanApplication>;
   applyProteinSequence?: (sequence: string) => void;
   importMutations?: (mutations: MutationSuggestion[]) => void;
   rememberFact?: (text: string, tags: string[]) => MemoryEntry[] | void;
@@ -61,10 +74,19 @@ export interface AgentWorkspaceContext {
     plasmidName: string;
     gcContent: number;
     codonHost: string;
+    topology?: 'circular' | 'linear';
+    /** Workspace version hash; the agent passes it back when editing. */
+    version?: string;
+    features?: { id: number; name: string; start: number; end: number; type: string; forward?: boolean }[];
   };
   documents: SearchDocument[];
   memory: MemoryEntry[];
   mcpServers: McpServerConfig[];
+  /** Locally synced risk catalogs; empty means screening is unavailable. */
+  riskCatalogs?: RiskCatalog[];
+  /** Commec profile-HMM coverage and screening, when the database is installed. */
+  biorisk?: { installed: boolean; version: string; models: number };
+  screenBiorisk?: (sequence: string, circular: boolean) => Promise<DiagnosticFinding[]>;
   actions: AgentActions;
 }
 
@@ -97,8 +119,8 @@ function ok(summary: string, data?: unknown, undoAvailable = false): AgentToolRe
   return { ok: true, summary, data, undoAvailable };
 }
 
-function fail(summary: string): AgentToolResult {
-  return { ok: false, summary };
+function fail(summary: string, data?: unknown): AgentToolResult {
+  return { ok: false, summary, ...(data === undefined ? {} : { data }) };
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string {
@@ -130,6 +152,15 @@ function truncate(text: string, max = 4000): string {
 
 function sequenceData(sequence: string, max = 4000): string {
   return truncate(sequence, max);
+}
+
+function compactJson(value: unknown): string {
+  try {
+    const text = JSON.stringify(value) ?? String(value);
+    return text.length > 300 ? `${text.slice(0, 297)}…` : text;
+  } catch {
+    return String(value);
+  }
 }
 
 function orfPayload(sequence: string, minimum: number, circular: boolean): unknown {
@@ -249,6 +280,9 @@ export function buildAgentTools(
             lengthBp: context.gene.dnaSequence.length,
             gcPercent: round(context.gene.gcContent || calculatePercentGC(context.gene.dnaSequence), 1),
             codonHost: context.gene.codonHost || 'ecoli',
+            topology: context.gene.topology ?? 'circular',
+            version: context.gene.version ?? '',
+            featureCount: context.gene.features?.length ?? 0,
             sequence: sequenceData(context.gene.dnaSequence),
           }
         : null,
@@ -256,6 +290,120 @@ export function buildAgentTools(
       memories: context.memory.slice(0, 20).map((entry) => ({ text: entry.text, tags: entry.tags })),
     }),
   });
+
+  if (context.actions.applyGenePlan) {
+    tools.push({
+      definition: definition(
+        'inspect_gene_workspace',
+        'Return the gene workspace version, construct name, topology, length, GC and every annotated feature. Call this before editing: edit_gene_workspace requires the version it returns.',
+        { type: 'object', properties: {}, additionalProperties: false },
+      ),
+      permission: 'read',
+      execute: () => {
+        const features = context.gene.features ?? [];
+        return ok('Gene workspace', {
+          version: context.gene.version ?? '',
+          name: context.gene.plasmidName || '(unnamed)',
+          topology: context.gene.topology ?? 'circular',
+          lengthBp: context.gene.dnaSequence.length,
+          gcPercent: round(
+            context.gene.gcContent || calculatePercentGC(context.gene.dnaSequence),
+            1,
+          ),
+          featureCount: features.length,
+          features: features.map((feature) => ({
+            id: feature.id,
+            name: feature.name,
+            type: feature.type,
+            start: feature.start,
+            end: feature.end,
+            strand: feature.forward === false ? '-' : '+',
+          })),
+        });
+      },
+    });
+
+    tools.push({
+      definition: definition(
+        'edit_gene_workspace',
+        [
+          'Apply typed intents to the gene workspace in one atomic step. Pass the version returned by inspect_gene_workspace; a plan written against different content is rejected.',
+          'Coordinates are 1-based inclusive base pairs and must fit the current sequence. On a circular document a range may cross the origin, written with start past end. The editor assigns feature ids, colours and sequence normalisation.',
+          'Intent types: replace_sequence {sequence}; add_feature {name,start,end,featureType?,forward?}; remove_feature {featureId}; rename_feature {featureId,name}; move_feature {featureId,start,end}; rename_construct {name}; set_topology {topology}.',
+          'Feature types: cds, gene, promoter, terminator, rep_origin, rbs, misc_feature, primer_bind, tag, signal_peptide, misc_marker, protein_bind, misc_binding.',
+          'The whole plan is one undo step and requires user approval.',
+        ].join(' '),
+        {
+          type: 'object',
+          properties: {
+            expectedVersion: {
+              type: 'string',
+              description: 'Version hash returned by inspect_gene_workspace',
+            },
+            intents: {
+              type: 'array',
+              description: 'Ordered intents, applied as one transaction',
+              items: { type: 'object' },
+            },
+            reason: { type: 'string', description: 'Short explanation of why this edit is needed' },
+          },
+          required: ['expectedVersion', 'intents'],
+          additionalProperties: false,
+        },
+      ),
+      permission: 'write',
+      preview: (args, ctx) => {
+        const expected = stringArg(args, 'expectedVersion');
+        const intents = Array.isArray(args.intents) ? args.intents : [];
+        const lines = intents.slice(0, 10).map((intent, index) => `${index + 1}. ${compactJson(intent)}`);
+        if (intents.length > 10) lines.push(`… ${intents.length - 10} more`);
+        const stale = expected && ctx.gene.version && expected !== ctx.gene.version;
+        return [
+          `Edit ${dnaLabel(ctx)} — ${intents.length} intent${intents.length === 1 ? '' : 's'}`,
+          ...lines,
+          stale ? `Note: the workspace has changed since this plan was written (${expected} → ${ctx.gene.version}); the edit will be refused.` : '',
+          stringArg(args, 'reason') ? `Reason: ${stringArg(args, 'reason')}` : '',
+        ].filter(Boolean).join('\n');
+      },
+      execute: async (args, ctx) => {
+        if (!ctx.actions.applyGenePlan) return fail('gene editor is not available');
+        const expectedVersion = stringArg(args, 'expectedVersion');
+        if (!expectedVersion) return fail('expectedVersion is required; call inspect_gene_workspace first');
+        if (!Array.isArray(args.intents)) return fail('intents must be an array');
+        const result = await ctx.actions.applyGenePlan(args.intents, expectedVersion);
+        if (!result.ok) {
+          return fail(`${result.code ?? 'rejected'}: ${result.message}`, {
+            code: result.code,
+            version: result.version,
+            hint:
+              result.code === 'stale_workspace'
+                ? 'the version in this result is current; rewrite the plan against it'
+                : 'the workspace is unchanged; correct the intents and retry',
+          });
+        }
+        if (result.snapshot) {
+          ctx.gene.dnaSequence = result.snapshot.sequence;
+          ctx.gene.plasmidName = result.snapshot.name;
+          ctx.gene.topology = result.snapshot.topology;
+          ctx.gene.gcContent = calculatePercentGC(result.snapshot.sequence);
+          ctx.gene.features = result.snapshot.features.map((feature) => ({
+            id: feature.id,
+            name: feature.name,
+            start: feature.start,
+            end: feature.end,
+            type: feature.type,
+            forward: feature.forward,
+          }));
+        }
+        ctx.gene.version = result.version;
+        return ok(result.message, {
+          version: result.version,
+          lengthBp: ctx.gene.dnaSequence.length,
+          featureCount: ctx.gene.features?.length ?? 0,
+        }, true);
+      },
+    });
+  }
 
   if (context.protein.sequence) {
     tools.push({
@@ -543,7 +691,71 @@ export function buildAgentTools(
     });
   }
 
-  if (context.actions.applyDnaSequence) {
+  if (context.gene.dnaSequence) {
+    tools.push({
+      definition: definition(
+        'screen_sequence',
+        [
+          'Screen the gene workspace, or a supplied DNA sequence, against the locally synced risk catalogs.',
+          'Read-only. Returns match spans, category and catalog coverage. It never returns catalog signatures or record names, and it does not decide whether the work is permitted.',
+          'When it reports a match, point the user to the Diagnostics panel; do not try to remove, rename or disguise the matched region to get a clean result.',
+        ].join(' '),
+        {
+          type: 'object',
+          properties: {
+            sequence: {
+              type: 'string',
+              description: 'Optional DNA sequence to screen instead of the workspace sequence',
+            },
+          },
+          additionalProperties: false,
+        },
+      ),
+      permission: 'read',
+      execute: async (args) => {
+        const catalogs = context.riskCatalogs ?? [];
+        const bioriskReady = context.biorisk?.installed === true && !!context.screenBiorisk;
+        if (catalogs.length === 0 && !bioriskReady) {
+          return ok('Screening unavailable', {
+            available: false,
+            reason: 'no risk database is loaded on this machine',
+            findings: [],
+          });
+        }
+        const sequence = stringArg(args, 'sequence') || context.gene.dnaSequence;
+        const circular = (context.gene.topology ?? 'circular') === 'circular';
+        const exact = screenSequence(sequence, catalogs, { circular });
+        const biorisk = bioriskReady ? await context.screenBiorisk!(sequence, circular) : [];
+        const hits = [...exact, ...biorisk];
+        return ok(`${hits.length} risk match${hits.length === 1 ? '' : 'es'}`, {
+          available: true,
+          coverage: {
+            amr: catalogs.map((catalog) => ({
+              source: catalog.source,
+              origin: catalog.origin,
+              version: catalog.version,
+              contentHash: catalog.contentHash,
+              records: catalog.records.length,
+              patterns: catalog.patternCount,
+              droppedPatterns: catalog.droppedPatterns,
+            })),
+            biorisk: context.biorisk ?? { installed: false, version: '', models: 0 },
+          },
+          findings: hits.map((hit) => ({
+            severity: hit.severity,
+            category: hit.evidence?.category ?? 'unknown',
+            source: hit.evidence?.source ?? '',
+            start: hit.scope.start,
+            end: hit.scope.end,
+            strand: hit.scope.strand,
+            requiresReview: hit.requiresReview === true,
+          })),
+        });
+      },
+    });
+  }
+
+  if (context.actions.applyDnaSequence || context.actions.applyGenePlan) {
     tools.push({
       definition: definition(
         'apply_dna_sequence',
@@ -564,16 +776,36 @@ export function buildAgentTools(
         if (checked.error) return `Invalid DNA: ${checked.error}`;
         const oldLength = ctx.gene.dnaSequence.length;
         const oldGc = ctx.gene.dnaSequence ? calculatePercentGC(ctx.gene.dnaSequence) : 0;
+        const stranded = ctx.actions.applyGenePlan
+          ? (ctx.gene.features ?? []).filter((feature) => feature.end > checked.sequence.length)
+          : [];
         return [
           `Replace DNA in ${dnaLabel(ctx)}`,
           `Length: ${oldLength} bp → ${checked.sequence.length} bp`,
           `GC: ${round(oldGc, 1)}% → ${round(calculatePercentGC(checked.sequence), 1)}%`,
+          stranded.length > 0
+            ? `Refused: ${stranded.map((feature) => `"${feature.name}" (id ${feature.id})`).join(', ')} end beyond ${checked.sequence.length} bp. Remove or resize those features in the same plan.`
+            : '',
           stringArg(args, 'reason') ? `Reason: ${stringArg(args, 'reason')}` : '',
         ].filter(Boolean).join('\n');
       },
-      execute: (args, ctx) => {
+      execute: async (args, ctx) => {
         const checked = validateDnaSequence(stringArg(args, 'sequence'));
         if (checked.error) return fail(checked.error);
+        if (ctx.actions.applyGenePlan) {
+          const result = await ctx.actions.applyGenePlan(
+            [{ type: 'replace_sequence', sequence: checked.sequence }],
+            ctx.gene.version,
+          );
+          if (!result.ok) return fail(`${result.code ?? 'rejected'}: ${result.message}`, { code: result.code, version: result.version });
+          ctx.gene.dnaSequence = checked.sequence;
+          ctx.gene.gcContent = calculatePercentGC(checked.sequence);
+          ctx.gene.version = result.version;
+          return ok(`Replaced DNA with ${checked.sequence.length} bp`, {
+            lengthBp: checked.sequence.length,
+            version: result.version,
+          }, true);
+        }
         if (!ctx.actions.applyDnaSequence) return fail('gene editor is not available');
         ctx.actions.applyDnaSequence(checked.sequence);
         ctx.gene.dnaSequence = checked.sequence;

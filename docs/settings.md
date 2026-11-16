@@ -88,28 +88,38 @@ The profile is re-fetched when Settings opens and when the Gene Editor mounts. T
 
 The Gene Editor tab provides sync controls for:
 
-- **REBASE** restriction enzymes.
-- **CARD** antimicrobial-resistance genes.
-- **IGSC** biosecurity toxin and pathogen motifs.
+- **REBASE** restriction enzymes, pulled from its public source.
+- **NCBI AMRFinderPlus**, pulled from NCBI's public reference-gene directory. The optional endpoint field takes an HTTPS directory holding `version.txt`, `ReferenceGeneCatalog.txt` and `AMR_CDS.fa`; leave it empty to use the current NCBI release.
+- **IBBIS Commec**, the biorisk profile database, installed from this section when you ask for it. Nothing is bundled or fetched in the background.
 
-Each section shows the locally cached count and a sync button. A success message does not always prove a live network sync: in browser/demo mode, or when the backend fails, the app can fall back to a curated local dataset. Check the count and the activity log if the result matters.
+AMRFinderPlus returns a catalogue of about 9,800 DNA signatures with gene name, class and subclass. Its entries are not all resistance genes: the catalogue also carries virulence factors and stress-response genes, and each finding is labelled with the entry's own class. It is public domain and updated monthly. The catalogue stays on this machine. If it has never been synced, the section screens the bundled five-signature sample and labels it **bundled sample**.
 
-### 4.2 Primer thermodynamics
+Commec is a 245 MB profile-HMM database covering toxins, regulated pathogens and virulence factors. **Install biorisk database** downloads it once, verifies the SHA-256 published by the upstream repository, and stores it in the application data directory. The section shows the release version, model count, must-flag count and install time; **Check for update** compares with the latest release and downloads only when it is newer. Loading it takes about a second and up to a gigabyte of memory; the copy is released after ten minutes without a screen and reloaded on demand. The database is not bundled, and biorisk screening stays unavailable until it is installed.
+
+Each section shows the origin, the last fetch or install time, and any error. Catalogue screening searches both strands and wraps circular documents across the origin. Biorisk screening translates the sequence in six frames and applies Commec's own E-value thresholds; sequences shorter than 50 bp are not screened. Short catalogue signatures are labelled in the diagnostics panel.
+
+### 4.2 Diagnostics
+
+**Analysis Views → Diagnostics** opens the findings panel for the current document. It lists structural problems, scientific observations and risk matches, each with a severity, a location, and, where a deterministic repair exists, a fix button. A fix is a typed edit and passes the same version and post-verify checks as any other change, so it appears as one undo step.
+
+Catalogue matches are warnings in the editor. Commec must-flag matches are blocking, including at the boundary: sequence export, SBOL export and SPD gene publishing are refused while a blocking match is unresolved. Matches are reported against the database copy named in the panel; check that version and date before relying on a clean screen.
+
+### 4.3 Primer thermodynamics
 
 The primer section exposes the default back-translation host and the monovalent, divalent, and primer concentrations used by the primer thermodynamics panel. The default host is *Escherichia coli*; the salt fields use molar units.
 
 In the current build these values are stored by Settings but are not wired into every primer calculation. Verify the calculated Tm against your own protocol before ordering.
 
-### 4.3 Gel export
+### 4.4 Gel export
 
 **Gel Electrophoresis Export Super-Resolution Multiplier** offers 1×, 2×, 4×, and 8×. Higher multipliers increase export size and time. Use 2× for routine figures and 4× or 8× only when the journal requires a large raster image.
 
-### 4.4 Gene preferences
+### 4.5 Gene preferences
 
 - **Real-time Project Auto-Save:** saves gene-editor changes in the background. When a file path is known it saves silently; without a path it writes a local cache and clears the dirty flag. This is not a substitute for saving the `.spiceproj`.
 - **Force Virtual Keyboard:** forces the on-screen DNA keyboard to appear in edit mode, even on desktop. Useful for touch devices and demonstrations.
 
-### 4.5 Custom enzyme sets
+### 4.6 Custom enzyme sets
 
 **Backup & Export Custom Enzyme Sets** writes a JSON file with your named enzyme sets. **Import External Enzyme Sets** expects an array of `{name, enzymes: []}` objects and merges by name; an imported set with the same name replaces the existing one.
 

@@ -15,6 +15,7 @@ SPICE GUI is local-first. Sequences, images, projects, and analysis results are 
 | SWISS-MODEL API token | Local storage (`spice_fold_swissmodel_token`); sent only to the SWISS-MODEL endpoint. |
 | GelGenie model | The application data directory, for example `~/Library/Application Support/com.spice.gui/models/gelgenie_unet.onnx` on macOS. |
 | SPICE protein checkpoint | A local path or the default model directory; never embedded in a project. |
+| Risk databases | The application data directory: the AMRFinderPlus catalogue JSON and the Commec biorisk database. |
 | Exports | Wherever you save them. |
 
 Local storage is per application install and per user profile. Clearing application data removes settings, snapshots, and the registry; it does not remove exported project files.
@@ -36,7 +37,9 @@ Most work is offline. The following features make network requests, and each sen
 | SPD health, publish, search | SPD (`d-api.spicebio.top`) | Token, and the record or query you submit. |
 | SynBioHub search/import | SynBioHub | Search term. |
 | ORCID profile | `pub.orcid.org` | ORCID iD. |
-| REBASE / CARD / IGSC sync | The respective public sources | Standard download requests. |
+| REBASE sync | The public REBASE source | Standard download request. |
+| NCBI AMRFinderPlus sync | NCBI FTP | A catalogue download request. The document sequence is never uploaded. |
+| IBBIS Commec install | GitHub release and LFS storage | A database download request. The document sequence is never uploaded. |
 | UniVec_Core sync | NCBI FTP | Standard download request. |
 | GelGenie or SPICE model download | The configured URL | Standard download request, and a proxy if configured. |
 | AI Co-Pilot | Your configured endpoint | The conversation and the workspace context you inject. |
